@@ -1,0 +1,36 @@
+services:
+  backend:
+    build: ./backend
+    container_name: hrms-backend
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-please-change-this-secret-key-in-production}
+      DATABASE_URL: sqlite:///./data/hrms.db
+      # simulate = demo punches | live = talk to the physical biometric device
+      TZ: ${TZ:-Asia/Kolkata}
+      DEVICE_MODE: ${DEVICE_MODE:-simulate}
+      DEVICE_IP: ${DEVICE_IP:-192.168.20.90}
+      DEVICE_PORT: ${DEVICE_PORT:-4370}
+      DEVICE_TIMEOUT: ${DEVICE_TIMEOUT:-5}
+      DEVICE_SYNC_INTERVAL_MINUTES: ${DEVICE_SYNC_INTERVAL_MINUTES:-10}
+      # Attendance/punch history is retained for at least one year.
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-365}
+      AUTO_CREATE_DEVICE_USERS: ${AUTO_CREATE_DEVICE_USERS:-true}
+      DEFAULT_SHIFT_NAME: ${DEFAULT_SHIFT_NAME:-General Shift}
+      PDF_DIR: ./data/pdfs
+    volumes:
+      - hrms-data:/app/data
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    container_name: hrms-frontend
+    restart: unless-stopped
+    ports:
+      - "7090:80"
+    depends_on:
+      - backend
+
+volumes:
+  hrms-data:

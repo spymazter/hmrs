@@ -1,0 +1,17 @@
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Local data, backups and generated artifacts
+backup/
+backend/data/
+backend/.pytest_cache/
+**/__pycache__/
+*.py[cod]
+frontend/node_modules/
+frontend/dist/
+*.db
+*.pdf
+*.log
+.DS_Store
