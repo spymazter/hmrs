@@ -16,24 +16,22 @@ The API (OpenAPI docs) is available at **http://localhost:7090/api/docs**.
 
 > The stack boots in `simulate` mode by default so you can explore the whole system immediately. Switch to the real device as described below.
 
-## Published images (Docker Hub)
+The Compose file now runs **frontend and backend in a single container** named `hrms`. If you are upgrading from the previous two-container setup, run `docker compose up -d --build --remove-orphans`; the existing `hrms_hrms-data` volume is reused and no data is deleted.
 
-The multi-architecture images are published as:
+## Published single-container image (Docker Hub)
 
-- `spymazter/hmrs-backend:latest`
-- `spymazter/hmrs-frontend:latest`
+The complete HRMS frontend and backend run in **one container** published as:
 
-Both images include `linux/amd64` and `linux/arm64`, so an x64 server pulls the amd64 variant automatically while this ARM Mac stays native. To force x64 explicitly, use `docker pull --platform linux/amd64 <image>`.
+- `spymazter/hmrs:latest`
 
-To run from the published images instead of building locally:
+The image includes `linux/amd64` and `linux/arm64`, so an x64 server pulls the amd64 variant automatically while this ARM Mac stays native. To force x64 explicitly, use `docker pull --platform linux/amd64 spymazter/hmrs:latest`.
+
+To run from the published image instead of building locally:
 
 ```bash
-docker network create hrms-net
+docker pull spymazter/hmrs:latest
 
-docker pull spymazter/hmrs-backend:latest
-docker pull spymazter/hmrs-frontend:latest
-
-docker run -d --name hrms-backend --network hrms-net --restart unless-stopped \
+docker run -d --name hrms --restart unless-stopped \
   -e SECRET_KEY='replace-with-a-long-random-string' \
   -e DATABASE_URL='sqlite:///./data/hrms.db' \
   -e TZ='Asia/Kolkata' \
@@ -46,15 +44,12 @@ docker run -d --name hrms-backend --network hrms-net --restart unless-stopped \
   -e AUTO_CREATE_DEVICE_USERS='true' \
   -e DEFAULT_SHIFT_NAME='General Shift' \
   -e PDF_DIR='./data/pdfs' \
-  -v hrms-data:/app/data \
-  spymazter/hmrs-backend:latest
-
-docker run -d --name hrms-frontend --network hrms-net --restart unless-stopped \
+  -v hrms_hrms-data:/app/data \
   -p 7090:80 \
-  spymazter/hmrs-frontend:latest
+  spymazter/hmrs:latest
 ```
 
-Open **http://localhost:7090**. The `hrms-data` volume preserves the database and generated PDFs; the stored device mode/IP/port from **Biometric devices** takes precedence over the environment values.
+Open **http://localhost:7090**. The `hrms_hrms-data` volume preserves the database and generated PDFs; the stored device mode/IP/port from **Biometric devices** takes precedence over the environment values. The older `spymazter/hmrs-backend` and `spymazter/hmrs-frontend` images remain published but are no longer required.
 
 Source code: **https://github.com/spymazter/hmrs**. The local `docker compose up -d --build` workflow still builds natively for the host architecture.
 
@@ -96,7 +91,7 @@ The backend uses the ZKTeco/eSSL TCP protocol via `pyzk`. It reads device users 
 
 > **Ping fix:** `pyzk` normally shells out to ICMP `ping` before connecting; the slim Docker image has no `ping` binary. `_zk_connection()` passes `ommit_ping=True` so the connection is validated over TCP `4370` instead.
 
-> **Network note:** the Docker host must be able to reach `192.168.20.90:4370`. If the device is on a different subnet, add the route on the host or use `network_mode: host` for the backend service.
+> **Network note:** the Docker host must be able to reach `192.168.20.90:4370`. If the device is on a different subnet, add the route on the host or use `network_mode: host` for the `hrms` service.
 
 If the device is unreachable in `live` mode, the Devices page shows the connection error and no demo data is invented.
 
@@ -138,68 +133,51 @@ Open **ATTENDANCE → Advanced reports** in the sidebar, directly below **Report
   - `GET /report?report=daily_basic&from_date=…&to_date=…` — rows, columns, summary and charts
   - `GET /export?report=…&format=xlsx|csv|json|pdf` — formatted download
   - `GET/PUT /config`, `POST /recompute`
-- **CLI** — runs against the same SQLite database inside the backend container:
+- **CLI** — runs against the same SQLite database inside the single HRMS container:
 
   ```bash
-  docker compose exec backend python -m cli.advanced_reports --list-reports
+  docker compose exec hrms python -m cli.advanced_reports --list-reports
 
-  docker compose exec backend python -m cli.advanced_reports \
+  docker compose exec hrms python -m cli.advanced_reports \
     --report muster_roll --from 2026-11-01 --to 2026-11-30 \
     --dept "IT department" --format xlsx --output /tmp/muster.xlsx
 
-  docker compose exec backend python -m cli.advanced_reports \
+  docker compose exec hrms python -m cli.advanced_reports \
     --report monthly_payroll_summary --from 2026-11-01 --to 2026-11-30 \
     --employee-code DEV-111 --format table
   ```
 
   `--location`, `--designation`, `--shift` and `--format table|xlsx|csv|json|pdf` are also supported. `--output` writes bytes to a file; without it, formatted output goes to stdout.
 
-- **Tests** — `docker compose run --rm backend python -m pytest -q` runs the engine, report-builder, overlay and export-formatter suite (21 tests).
+- **Tests** — `docker compose run --rm hrms python -m pytest -q` runs the engine, report-builder, overlay and export-formatter suite (21 tests).
 
 ## Architecture
 
+Docker Compose builds one image from the root `Dockerfile` and runs a single container named `hrms`:
+
 ```
 HRMS/
-├── docker-compose.yml          # backend + nginx frontend on port 7090
+├── Dockerfile                  # single image: Vite build + Python API + nginx + supervisor
+├── docker-compose.yml          # one service on port 7090
+├── nginx-single.conf           # /api → 127.0.0.1:8000, SPA fallback
+├── supervisord.conf            # runs uvicorn and nginx inside the container
 ├── .env.example
-├── backend/
-│   ├── Dockerfile
-│   ├── cli/
-│   │   └── advanced_reports.py # report CLI (table/xlsx/csv/json/pdf)
-│   ├── scripts/
-│   │   └── generate_sample_data.py
-│   ├── tests/                  # pytest engine/report/export tests
-│   └── app/
-│       ├── main.py             # FastAPI app, startup seed + first sync
-│       ├── config.py           # env-driven settings
-│       ├── database.py         # SQLAlchemy engine/session (SQLite volume)
-│       ├── models.py           # all entities
-│       ├── schemas.py
-│       ├── auth.py             # JWT, permissions, scoping helpers
-│       ├── permissions.py      # permission catalogue
-│       ├── seed.py             # idempotent default data
-│       ├── routers/            # auth, dashboard, employees, shifts, devices,
-│       │                       # attendance, reports, advanced_reports, leaves,
-│       │                       # payroll, access
-│       └── services/           # biometric, attendance, attendance_engine,
-│                               # advanced_reports, report_formatters, payroll,
-│                               # pdf, scheduler
-└── frontend/
-    ├── Dockerfile              # Vite build → nginx
-    ├── nginx.conf              # /api proxy to backend, SPA fallback
-    └── src/                    # React SPA
+├── backend/                    # FastAPI app, CLI, scripts and pytest suite
+└── frontend/                   # React/Vite source
 ```
+
+Inside the container, supervisor starts `uvicorn` on `127.0.0.1:8000` and nginx on port `80`; nginx serves the built React app and proxies `/api` to uvicorn. Compose publishes host port `7090` to container port `80`.
 
 ## Common commands
 
 ```bash
-docker compose logs -f backend       # watch sync/startup logs
-docker compose restart backend       # restart API
-docker compose down                  # stop (data stays in hrms-data volume)
-docker compose down -v               # stop and delete all data
+docker compose logs -f hrms       # watch sync/startup logs
+docker compose restart hrms       # restart the single container
+docker compose down              # stop (data stays in hrms_hrms-data volume)
+docker compose down -v            # stop and delete all data
 
-docker compose run --rm backend python -m pytest -q          # run tests
-docker compose exec backend python -m cli.advanced_reports --list-reports
+docker compose run --rm hrms python -m pytest -q          # run tests
+docker compose exec hrms python -m cli.advanced_reports --list-reports
 ```
 
 ## Notes

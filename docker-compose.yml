@@ -1,8 +1,12 @@
 services:
-  backend:
-    build: ./backend
-    container_name: hrms-backend
+  hrms:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: spymazter/hmrs:latest
+    container_name: hrms
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       SECRET_KEY: ${SECRET_KEY:-please-change-this-secret-key-in-production}
       DATABASE_URL: sqlite:///./data/hrms.db
@@ -20,17 +24,8 @@ services:
       PDF_DIR: ./data/pdfs
     volumes:
       - hrms-data:/app/data
-    expose:
-      - "8000"
-
-  frontend:
-    build: ./frontend
-    container_name: hrms-frontend
-    restart: unless-stopped
     ports:
       - "7090:80"
-    depends_on:
-      - backend
 
 volumes:
   hrms-data:
