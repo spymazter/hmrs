@@ -299,6 +299,21 @@ class EmployeeUpdate(BaseModel):
     manager_id: Optional[int] = None
 
 
+class EmployeeDocumentOut(BaseModel):
+    id: int
+    employee_id: int
+    employee_code: Optional[str] = None
+    employee_name: Optional[str] = None
+    category: str
+    category_label: Optional[str] = None
+    original_filename: str
+    content_type: Optional[str] = None
+    size_bytes: int = 0
+    uploaded_by: Optional[int] = None
+    uploaded_by_name: Optional[str] = None
+    uploaded_at: Optional[datetime] = None
+
+
 class EmployeeSelfUpdate(BaseModel):
     """Fields an employee is allowed to change from the self-service portal.
 

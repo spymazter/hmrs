@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3, BriefcaseBusiness, Building2, CalendarCheck2, CalendarRange, ChevronDown, ClipboardList,
-  FileBarChart, Fingerprint, LayoutDashboard, LogOut, MapPin, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
+  FileBarChart, FileText, Fingerprint, LayoutDashboard, LogOut, MapPin, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -14,6 +14,7 @@ const NAV = [
   ] },
   { section: 'People & shifts', items: [
     { to: '/employees', label: 'Employees', icon: Users, perm: ['employee.view'] },
+    { to: '/documents', label: 'Documents', icon: FileText, perm: ['document.view', 'self.portal'] },
     { to: '/departments', label: 'Departments', icon: Building2, perm: ['employee.view'] },
     { to: '/designations', label: 'Designations', icon: BriefcaseBusiness, perm: ['employee.view'] },
     { to: '/locations', label: 'Locations', icon: MapPin, perm: ['employee.view'] },
@@ -39,6 +40,7 @@ const NAV = [
 const TITLES = {
   '/': ['Dashboard', 'Today at a glance'],
   '/employees': ['Employees', 'Manage employee master and device enrollment'],
+  '/documents': ['Employee documents', 'Appointment orders, medical fitness and HR-only verification forms'],
   '/departments': ['Departments', 'Maintain departments and their heads'],
   '/designations': ['Designations', 'Maintain job titles grouped by department'],
   '/locations': ['Locations', 'Workplaces and branches used by advanced reports'],

@@ -99,6 +99,7 @@ If the device is unreachable in `live` mode, the Devices page shows the connecti
 
 - **Authentication & RBAC** — JWT login, permissions, roles, **role groups** (combine any roles), direct role assignment, and group assignment. Effective permissions = union of direct roles + all roles in assigned groups.
 - **Employee master** — code, personal details, department, designation, location, shift, manager, device UID, optional self-service login.
+- **Employee documents** — HR/admin upload appointment orders, medical fitness certificates and antecedent verification forms from **People & shifts → Documents**. The linked employee can view/download appointment orders and medical fitness certificates; antecedent verification forms are HR-only. Files are stored outside the database in the persistent `data/documents` directory and served only through authenticated API routes.
 - **Permanent identity rules** — employee codes and device UIDs are unique case-insensitively and reserved for life. A retired or deleted ID can never be reassigned to another employee, and an employee ID can be linked to only one user ever. Live sync skips device users whose derived `DEV-<uid>` ID is already reserved, instead of creating a duplicate.
 - **People & shifts master data** — departments, designations and locations are managed in **People & shifts**; master rows in use by employees cannot be deleted until reassigned.
 - **Shifts** — start/end time, late grace, early-out grace, full-day and half-day thresholds, weekly off days, plus `fixed` / `rotational` / `flexi` / `night` type, flexi target hours, reference break minutes and weekly rotation groups.
@@ -151,7 +152,7 @@ Open **ATTENDANCE → Advanced reports** in the sidebar, directly below **Report
 
   `--location`, `--designation`, `--shift` and `--format table|xlsx|csv|json|pdf` are also supported. `--output` writes bytes to a file; without it, formatted output goes to stdout.
 
-- **Tests** — `docker compose run --rm hrms python -m pytest -q` runs the engine, report-builder, overlay and export-formatter suite (21 tests).
+- **Tests** — `docker compose run --rm hrms python -m pytest -q` runs the engine, report-builder, overlay, export-formatter, identity-rule and document-visibility suite (33 tests).
 
 ## Architecture
 
@@ -184,7 +185,7 @@ docker compose exec hrms python -m cli.advanced_reports --list-reports
 
 ## Notes
 
-- Data is stored in the named Docker volume `hrms-data` (`data/hrms.db` and generated PDFs).
+- Data is stored in the named Docker volume `hrms-data` (`data/hrms.db`, generated PDFs and uploaded employee documents under `data/documents`).
 - Payroll working days are Monday–Friday minus configured holidays.
 - Payroll processing defaults to **`scope=device`**: only live biometric employees (`DEV-*`) are paid, using their device attendance; demo `EMP-*` slips for that period are replaced. Salary structures must be imported first — processing fails with a clear message instead of generating zero-pay slips. Use `{"scope":"all","replace_existing":false}` via the API if you intentionally want the old behaviour.
 - The Salary structures and Salary slips lists also default to live `DEV-*` records only. Add `?include_demo=true` to either endpoint to inspect seeded demo data; self-service users always retain access to their own slip.
@@ -194,6 +195,7 @@ docker compose exec hrms python -m cli.advanced_reports --list-reports
 - Employee logins see only their own salary slips in **Payroll & slips**, with no period/structure/processing controls, no “mark paid”, and no manual punch/recompute/delete controls in **Attendance**. Multi-month slips can be downloaded as a ZIP from the slips page or **My portal → Download all slips**.
 - Employee-linked users created through **Roles & access → Users** or **Employees → Enable self-service login** must complete a first-login onboarding step: confirm personal details (DOB, first/last name, contact and emergency contact details) and set a new password. Their username cannot be changed. Existing accounts are treated as already complete.
 - Employees can later update their own personal details from **My portal → Edit personal details** (`PUT /api/employees/me`). Employment fields such as employee code, status, device UID, department, designation, shift and manager remain admin-only.
+- Employee documents use `GET/POST /api/employee-documents` and `GET /api/employee-documents/{id}/download`. HR-only visibility is based on direct HR/admin roles (or the direct `document.hr` permission); role groups do not grant access to antecedent verification forms, so `manager` and `payroll` cannot read them through inherited roles. PDF, Word and image files up to 20 MB are accepted.
 - Punches are paired into every completed in/out segment of the day and the segment durations are added together, so multiple sessions (morning + evening) no longer count the gap as working time. Historical records are rebuilt automatically once after upgrading; `POST /api/attendance/recompute-all` can rebuild them again at any time.
 - **Attendance → Daily records** status picker includes **Late arrivals** (`?status=late`): it matches every record with late minutes above the shift grace, regardless of whether the final status is present or half day. The dashboard’s “late arrivals” count uses the same rule.
 - The **Attendance** page header of both tables has **Excel** and **PDF** buttons that download the current view (same tab, date range, employee and status filters) via `GET /api/attendance/export?view=records|logs&format=xlsx|pdf`. Exports include all matching rows up to 10,000 and respect each user's attendance scoping.

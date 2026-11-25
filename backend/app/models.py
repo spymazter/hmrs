@@ -235,6 +235,23 @@ class Employee(Base):
         return self.location.name if self.location else None
 
 
+class EmployeeDocument(Base):
+    """An HR-uploaded document belonging to an employee."""
+    __tablename__ = "employee_documents"
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    category = Column(String(50), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=False)
+    stored_filename = Column(String(255), nullable=False, unique=True)
+    content_type = Column(String(100))
+    size_bytes = Column(Integer, default=0)
+    uploaded_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    uploaded_at = Column(DateTime, default=datetime.now)
+
+    employee = relationship("Employee")
+
+
 class IdentifierReservation(Base):
     """Permanent ownership record for employee codes, device UIDs and user links.
 

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     DEFAULT_SHIFT_NAME: str = "General Shift"
 
     PDF_DIR: str = "./data/pdfs"
+    DOCUMENT_DIR: str = "./data/documents"
     CORS_ORIGINS: str = "*"
 
     # Attendance/punch logs are kept for at least this many days.  There is no

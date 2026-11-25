@@ -22,6 +22,7 @@ def _role_permissions(name: str) -> list[str]:
     if name == "HR Manager":
         return [
             "dashboard.view", "employee.view", "employee.create", "employee.edit",
+            "document.view", "document.manage", "document.hr",
             "shift.view", "shift.manage", "attendance.view", "attendance.manage",
             "device.view", "report.view", "report.export", "leave.view",
             "leave.manage", "leave.approve", "access.view", "self.portal",
@@ -39,7 +40,7 @@ def _role_permissions(name: str) -> list[str]:
         ]
     return [
         "dashboard.view", "self.portal", "attendance.view", "payslip.view",
-        "payslip.pdf", "leave.view", "leave.manage",
+        "payslip.pdf", "leave.view", "leave.manage", "document.view",
     ]
 
 

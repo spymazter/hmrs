@@ -1,3 +1,4 @@
+import json
 import os
 
 from sqlalchemy import create_engine, event, inspect, text
@@ -138,6 +139,34 @@ def _migrate_identity_reservations() -> None:
             connection.execute(text(statement))
 
 
+def _grant_document_permissions() -> None:
+    """Give existing installs the new employee-document permissions."""
+    grants = {
+        "admin": {"document.view", "document.manage", "document.hr"},
+        "hr manager": {"document.view", "document.manage", "document.hr"},
+        "employee": {"document.view"},
+    }
+    with engine.begin() as connection:
+        rows = connection.execute(text("SELECT id, name, permissions FROM roles")).fetchall()
+        for row in rows:
+            wanted = grants.get((row.name or "").strip().casefold())
+            if not wanted:
+                continue
+            try:
+                permissions = json.loads(row.permissions or "[]")
+            except (TypeError, ValueError):
+                permissions = []
+            updated = list(permissions)
+            for code in sorted(wanted):
+                if code not in updated:
+                    updated.append(code)
+            if updated != permissions:
+                connection.execute(
+                    text("UPDATE roles SET permissions = :permissions WHERE id = :id"),
+                    {"permissions": json.dumps(updated), "id": row.id},
+                )
+
+
 def run_migrations() -> None:
     """Add new columns to an existing database without recreating tables."""
     inspector = inspect(engine)
@@ -169,6 +198,7 @@ def run_migrations() -> None:
             ))
 
     _migrate_identity_reservations()
+    _grant_document_permissions()
 
 
 def get_db():

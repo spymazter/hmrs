@@ -18,7 +18,7 @@ COPY ./cli ./cli
 COPY ./scripts ./scripts
 COPY ./tests ./tests
 
-RUN mkdir -p /app/data/pdfs
+RUN mkdir -p /app/data/pdfs /app/data/documents
 
 EXPOSE 8000
 

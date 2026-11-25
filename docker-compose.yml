@@ -22,6 +22,7 @@ services:
       AUTO_CREATE_DEVICE_USERS: ${AUTO_CREATE_DEVICE_USERS:-true}
       DEFAULT_SHIFT_NAME: ${DEFAULT_SHIFT_NAME:-General Shift}
       PDF_DIR: ./data/pdfs
+      DOCUMENT_DIR: ./data/documents
     volumes:
       - hrms-data:/app/data
     ports:
