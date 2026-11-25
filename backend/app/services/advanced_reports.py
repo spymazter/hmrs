@@ -7,15 +7,16 @@ plain dictionaries, keeping calculation, data access and formatting separate.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Callable
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import (
     Department, Designation, Employee, LeaveRequest, LeaveType, Location,
-    PunchLog, Regularization, Shift, User,
+    PunchLog, Regularization, Shift, ShiftGroup, User,
 )
 from app.services.attendance_engine import (
     AttendanceEngine, EngineConfig, EngineFilters, DayCalculation,
@@ -36,6 +37,10 @@ class ReportContext:
     engine: AttendanceEngine
     filters: dict
     by_employee: dict[int, list[DayCalculation]]
+    # Report-level employee scope may be broader than calculated rows.  For
+    # example, the muster roll lists every employee in scope even in months
+    # before they joined, showing "—" for those days.
+    employees: list[Employee] = field(default_factory=list)
 
     def shift(self, calc: DayCalculation) -> Shift | None:
         return self.db.get(Shift, calc.shift_id) if calc.shift_id else None
@@ -65,6 +70,37 @@ def _num(value) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _scoped_employees(db: Session, filters: EngineFilters) -> list[Employee]:
+    """Mirror the engine's employee filters without loading attendance data.
+
+    Used by report builders that need to list employees who had no calculations
+    in the selected period (for example, colleagues who joined later).
+    """
+    query = db.query(Employee)
+    if filters.employee_ids is not None:
+        if not filters.employee_ids:
+            return []
+        query = query.filter(Employee.id.in_(filters.employee_ids))
+    if filters.employee_code:
+        query = query.filter(Employee.employee_code.ilike(f"%{filters.employee_code}%"))
+    if filters.department_id:
+        query = query.filter(Employee.department_id == filters.department_id)
+    if filters.location_id:
+        query = query.filter(Employee.location_id == filters.location_id)
+    if filters.designation_id:
+        query = query.filter(Employee.designation_id == filters.designation_id)
+    if filters.shift_id:
+        group_ids = [
+            group.id for group in db.query(ShiftGroup).all()
+            if any(shift.id == filters.shift_id for shift in group.shifts)
+        ]
+        condition = Employee.shift_id == filters.shift_id
+        if group_ids:
+            condition = or_(condition, Employee.shift_group_id.in_(group_ids))
+        query = query.filter(condition)
+    return query.order_by(Employee.employee_code).all()
 
 
 def _summarize(rows: list[dict], columns: COLUMNS) -> dict:
@@ -248,23 +284,34 @@ def _monthly_summary(ctx: ReportContext):
 
 
 def _muster_roll(ctx: ReportContext):
-    dates = sorted({date.fromisoformat(c.date) for c in ctx.calculations})
-    if len(dates) > 31:
-        dates = dates[:31]
+    # A muster roll lists the whole in-scope team, not only people who have
+    # attendance rows in this period.  Days before an employee joined are
+    # shown as "—" and are never counted as present/absent.
+    span = (ctx.end - ctx.start).days + 1
+    dates = [ctx.start + timedelta(days=i) for i in range(min(max(span, 0), 31))]
     columns = [
         ("employee_code", "Emp code"), ("employee_name", "Name"),
-        ("department", "Department"),
+        ("department", "Department"), ("joined_on", "Joined"),
     ] + [(f"day_{day.day:02d}", f"{day.day:02d}") for day in dates] + [
         ("present", "P"), ("half_days", "HD"), ("absent", "A"),
         ("leave", "L"), ("week_offs", "WO"), ("holidays", "HL"),
     ]
+    employees = ctx.employees
+    if not employees and ctx.by_employee:
+        ids = list(ctx.by_employee)
+        employees = (
+            ctx.db.query(Employee).filter(Employee.id.in_(ids))
+            .order_by(Employee.employee_code).all()
+        )
     rows = []
-    for employee_id, calcs in ctx.by_employee.items():
+    for employee in employees:
+        calcs = ctx.by_employee.get(employee.id, [])
         lookup = {date.fromisoformat(c.date): c for c in calcs}
         row = {
-            "employee_code": calcs[0].employee_code,
-            "employee_name": calcs[0].employee_name,
-            "department": calcs[0].department,
+            "employee_code": employee.employee_code,
+            "employee_name": employee.full_name,
+            "department": employee.department_name or "",
+            "joined_on": employee.date_of_joining.isoformat() if employee.date_of_joining else "—",
             "present": sum(1 for c in calcs if c.status == "present"),
             "half_days": sum(1 for c in calcs if c.status == "half_day"),
             "absent": sum(1 for c in calcs if c.status in ("absent", "missed_punch")),
@@ -273,7 +320,11 @@ def _muster_roll(ctx: ReportContext):
             "holidays": sum(1 for c in calcs if c.status == "holiday"),
         }
         for day in dates:
-            row[f"day_{day.day:02d}"] = lookup[day].status_code if day in lookup else "—"
+            key = f"day_{day.day:02d}"
+            if employee.date_of_joining and day < employee.date_of_joining:
+                row[key] = "—"
+            else:
+                row[key] = lookup[day].status_code if day in lookup else "—"
         rows.append(row)
     return rows, None, columns
 
@@ -702,6 +753,7 @@ def build_report(
         db=db, start=start, end=end, calculations=calculations,
         config=engine.config, engine=engine, filters=filter_values,
         by_employee=dict(by_employee),
+        employees=_scoped_employees(db, filters),
     )
     result = definition.builder(ctx)
     if len(result) == 3:

@@ -1,10 +1,11 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 
 from conftest import sample_db
 from openpyxl import load_workbook
 from io import BytesIO
 
+from app.models import Employee
 from app.services.advanced_reports import REPORT_MAP, build_report, report_metadata
 from app.services.attendance_engine import EngineFilters
 from app.services.report_formatters import (
@@ -58,6 +59,35 @@ def test_muster_roll_has_day_columns_and_codes():
         payload = _payload(db, "muster_roll")
         keys = [column["key"] for column in payload["columns"]]
         assert "day_05" in keys and "day_11" in keys
+        ash = next(r for r in payload["rows"] if r["employee_code"] == "SMP001")
+        assert ash["day_05"] == "P"
+    finally:
+        db.close()
+
+
+def test_muster_roll_lists_employees_who_joined_after_period():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        db.add(Employee(
+            employee_code="SMP100", first_name="Later", last_name="Joiner",
+            status="active", date_of_joining=END + timedelta(days=1),
+        ))
+        db.commit()
+
+        payload = build_report(db, "muster_roll", START, END, EngineFilters())
+        codes = [r["employee_code"] for r in payload["rows"]]
+        assert "SMP100" in codes
+        assert len(codes) == 10
+
+        joiner = next(r for r in payload["rows"] if r["employee_code"] == "SMP100")
+        keys = [column["key"] for column in payload["columns"]]
+        assert "joined_on" in keys
+        assert joiner["joined_on"] == (END + timedelta(days=1)).isoformat()
+        assert all(joiner[f"day_{day.day:02d}"] == "—" for day in (START, END))
+        assert joiner["present"] == joiner["absent"] == 0
+
+        # Existing employees keep their calculated statuses.
         ash = next(r for r in payload["rows"] if r["employee_code"] == "SMP001")
         assert ash["day_05"] == "P"
     finally:
