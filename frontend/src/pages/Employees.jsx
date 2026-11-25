@@ -15,7 +15,7 @@ const GENDER_OPTIONS = ['Male', 'Female', 'Other'].map((v) => ({ value: v, label
 const EMPTY = {
   employee_code: '', first_name: '', last_name: '', email: '', phone: '',
   gender: '', date_of_joining: todayStr(), status: 'active', device_user_id: '',
-  department_id: '', designation_id: '', shift_id: '', location_id: '', manager_id: '',
+  department_id: '', designation_id: '', shift_id: '', shift_group_id: '', location_id: '', manager_id: '',
   create_login: false, login_password: 'emp123',
 }
 
@@ -29,7 +29,7 @@ export default function Employees() {
   const [dept, setDept] = useState('')
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState(searchParams.get('status') || '')
-  const [master, setMaster] = useState({ departments: [], designations: [], shifts: [], locations: [], employees: [] })
+  const [master, setMaster] = useState({ departments: [], designations: [], shifts: [], shiftGroups: [], locations: [], employees: [] })
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState(EMPTY)
   const [editing, setEditing] = useState(null)
@@ -45,8 +45,8 @@ export default function Employees() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/departments'), api.get('/designations'), api.get('/shifts'), api.get('/locations'), api.get('/employees?limit=500'),
-    ]).then(([d, des, s, l, e]) => setMaster({ departments: d.data, designations: des.data, shifts: s.data, locations: l.data, employees: e.data.items }))
+      api.get('/departments'), api.get('/designations'), api.get('/shifts'), api.get('/shift-groups'), api.get('/locations'), api.get('/employees?limit=500'),
+    ]).then(([d, des, s, g, l, e]) => setMaster({ departments: d.data, designations: des.data, shifts: s.data, shiftGroups: g.data, locations: l.data, employees: e.data.items }))
       .catch(() => {})
   }, [])
 
@@ -55,7 +55,7 @@ export default function Employees() {
   const openNew = () => { setEditing(null); setForm(EMPTY); setModal(true) }
   const openEdit = (row) => {
     setEditing(row.id)
-    setForm({ ...EMPTY, ...row, department_id: row.department_id || '', designation_id: row.designation_id || '', shift_id: row.shift_id || '', location_id: row.location_id || '', manager_id: row.manager_id || '', date_of_joining: row.date_of_joining || '' })
+    setForm({ ...EMPTY, ...row, department_id: row.department_id || '', designation_id: row.designation_id || '', shift_id: row.shift_id || '', shift_group_id: row.shift_group_id || '', location_id: row.location_id || '', manager_id: row.manager_id || '', date_of_joining: row.date_of_joining || '' })
     setModal(true)
   }
 
@@ -63,7 +63,7 @@ export default function Employees() {
     setError('')
     try {
       const payload = { ...form }
-      ;['department_id', 'designation_id', 'shift_id', 'location_id', 'manager_id'].forEach((k) => { if (payload[k] === '') payload[k] = null })
+      ;['department_id', 'designation_id', 'shift_id', 'shift_group_id', 'location_id', 'manager_id'].forEach((k) => { if (payload[k] === '') payload[k] = null })
       if (!payload.date_of_joining) payload.date_of_joining = null
       if (editing) {
         delete payload.create_login
@@ -89,7 +89,7 @@ export default function Employees() {
     { label: 'Employee', render: (r) => <><span className="strong">{r.first_name} {r.last_name}</span><span className="sub">{r.employee_code} · {r.email || '—'}</span></> },
     { label: 'Department', render: (r) => r.department_name || '—' },
     { label: 'Designation', render: (r) => r.designation_name || '—' },
-    { label: 'Shift', render: (r) => r.shift_name || '—' },
+    { label: 'Shift', render: (r) => <><span>{r.shift_name || '—'}</span><span className="sub">{r.shift_group_name || 'No group'}</span></> },
     { label: 'Device UID', render: (r) => <span className="mono">{r.device_user_id || '—'}</span> },
     { label: 'Status', render: (r) => <Badge status={r.status} /> },
     ...(has('employee.edit', 'employee.delete') ? [{ label: 'Actions', className: 'text-right', render: (r) => (
@@ -141,6 +141,7 @@ export default function Employees() {
           <Field label="Department"><SearchableSelect value={form.department_id} onChange={(v) => setForm({ ...form, department_id: v, designation_id: '' })} options={master.departments.map((d) => ({ value: d.id, label: d.name }))} placeholder="—" /></Field>
           <Field label="Designation"><SearchableSelect value={form.designation_id} onChange={(v) => setForm({ ...form, designation_id: v })} options={master.designations.filter((d) => !form.department_id || d.department_id === Number(form.department_id)).map((d) => ({ value: d.id, label: d.name }))} placeholder="—" /></Field>
           <Field label="Shift"><SearchableSelect value={form.shift_id} onChange={(v) => setForm({ ...form, shift_id: v })} options={master.shifts.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" /></Field>
+          <Field label="Shift group" hint="Shared rotation group; mapped on Shift groups page too"><SearchableSelect value={form.shift_group_id} onChange={(v) => setForm({ ...form, shift_group_id: v })} options={master.shiftGroups.map((g) => ({ value: g.id, label: g.name }))} placeholder="— No group" /></Field>
           <Field label="Location"><SearchableSelect value={form.location_id} onChange={(v) => setForm({ ...form, location_id: v })} options={master.locations.map((l) => ({ value: l.id, label: l.label || l.name }))} placeholder="—" /></Field>
           <Field label="Reporting manager"><SearchableSelect value={form.manager_id} onChange={(v) => setForm({ ...form, manager_id: v })} options={master.employees.filter((e) => e.id !== editing).map((e) => ({ value: e.id, label: `${e.employee_code} — ${e.first_name} ${e.last_name}` }))} placeholder="—" /></Field>
           <Field label="Date of joining"><input type="date" value={form.date_of_joining} onChange={(e) => setForm({ ...form, date_of_joining: e.target.value })} /></Field>

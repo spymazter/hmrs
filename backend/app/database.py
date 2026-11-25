@@ -44,6 +44,7 @@ _COLUMN_MIGRATIONS = {
         "emergency_contact_relationship": "VARCHAR(50)",
         "address": "TEXT",
         "location_id": "INTEGER",
+        "shift_group_id": "INTEGER",
     },
     "users": {
         "profile_completed": "BOOLEAN DEFAULT 0 NOT NULL",
@@ -53,6 +54,7 @@ _COLUMN_MIGRATIONS = {
         "target_hours": "FLOAT",
         "break_minutes": "INTEGER DEFAULT 0",
         "rotation_group": "VARCHAR(50)",
+        "shift_group_id": "INTEGER",
     },
     "punch_logs": {
         "verify_mode": "VARCHAR(30)",

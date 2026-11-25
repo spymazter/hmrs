@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  BarChart3, BriefcaseBusiness, Building2, CalendarCheck2, ChevronDown, ClipboardList,
+  BarChart3, BriefcaseBusiness, Building2, CalendarCheck2, CalendarRange, ChevronDown, ClipboardList,
   FileBarChart, Fingerprint, LayoutDashboard, LogOut, MapPin, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
@@ -18,6 +18,7 @@ const NAV = [
     { to: '/designations', label: 'Designations', icon: BriefcaseBusiness, perm: ['employee.view'] },
     { to: '/locations', label: 'Locations', icon: MapPin, perm: ['employee.view'] },
     { to: '/shifts', label: 'Shifts', icon: CalendarCheck2, perm: ['shift.view', 'employee.view'] },
+    { to: '/shift-groups', label: 'Shift groups', icon: CalendarRange, perm: ['shift.view', 'employee.view'] },
     { to: '/leaves', label: 'Leave management', icon: ClipboardList, perm: ['leave.view'] },
   ] },
   { section: 'Attendance', items: [
@@ -42,6 +43,7 @@ const TITLES = {
   '/designations': ['Designations', 'Maintain job titles grouped by department'],
   '/locations': ['Locations', 'Workplaces and branches used by advanced reports'],
   '/shifts': ['Shifts', 'Working hours, grace time and weekly offs'],
+  '/shift-groups': ['Shift groups', 'Shared rotations and employee mapping'],
   '/leaves': ['Leave management', 'Applications and approvals'],
   '/attendance': ['Attendance', 'Daily records and raw punch logs'],
   '/reports': ['Reports', 'Daily, weekly and monthly attendance analytics'],

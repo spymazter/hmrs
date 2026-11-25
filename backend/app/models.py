@@ -116,6 +116,33 @@ class Designation(Base):
         return self.department.name if self.department else None
 
 
+class ShiftGroup(Base):
+    """A named roster group: a set of shifts shared by a set of employees.
+
+    Employees mapped to a group rotate through that group's shifts when no
+    explicit daily roster row exists.  Membership is stored on the employee
+    (one group per employee) and on each shift (one group per shift).
+    """
+    __tablename__ = "shift_groups"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), unique=True, nullable=False)
+    code = Column(String(30), unique=True)
+    description = Column(String(255))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    shifts = relationship("Shift", back_populates="shift_group")
+    employees = relationship("Employee", back_populates="shift_group")
+
+    @property
+    def shift_ids(self):
+        return [s.id for s in self.shifts]
+
+    @property
+    def employee_ids(self):
+        return [e.id for e in self.employees]
+
+
 class Shift(Base):
     __tablename__ = "shifts"
     id = Column(Integer, primary_key=True)
@@ -134,7 +161,13 @@ class Shift(Base):
     shift_type = Column(String(20), default="fixed")  # fixed / rotational / flexi / night
     target_hours = Column(Float)  # flexi shift target; defaults to scheduled span
     break_minutes = Column(Integer, default=0)
-    rotation_group = Column(String(50))  # shifts with this name rotate by roster/date
+    rotation_group = Column(String(50))  # legacy: shifts with this name rotate by roster/date
+    shift_group_id = Column(Integer, ForeignKey("shift_groups.id", ondelete="SET NULL"))
+    shift_group = relationship("ShiftGroup", back_populates="shifts")
+
+    @property
+    def shift_group_name(self):
+        return self.shift_group.name if self.shift_group else None
 
 
 class Employee(Base):
@@ -158,6 +191,7 @@ class Employee(Base):
     department_id = Column(Integer, ForeignKey("departments.id"))
     designation_id = Column(Integer, ForeignKey("designations.id"))
     shift_id = Column(Integer, ForeignKey("shifts.id"))
+    shift_group_id = Column(Integer, ForeignKey("shift_groups.id", ondelete="SET NULL"))
     location_id = Column(Integer, ForeignKey("locations.id"))
     manager_id = Column(Integer, ForeignKey("employees.id"))
     created_at = Column(DateTime, default=datetime.now)
@@ -166,6 +200,7 @@ class Employee(Base):
     department = relationship("Department")
     designation = relationship("Designation")
     shift = relationship("Shift")
+    shift_group = relationship("ShiftGroup", back_populates="employees")
     location = relationship("Location")
     manager = relationship("Employee", remote_side=[id])
 
@@ -184,6 +219,10 @@ class Employee(Base):
     @property
     def shift_name(self):
         return self.shift.name if self.shift else None
+
+    @property
+    def shift_group_name(self):
+        return self.shift_group.name if self.shift_group else None
 
     @property
     def location_name(self):

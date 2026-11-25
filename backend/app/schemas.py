@@ -156,6 +156,51 @@ class DesignationOut(ORMBase, DesignationBase):
     department_name: Optional[str] = None
 
 
+class ShiftGroupBase(BaseModel):
+    name: str
+    code: Optional[str] = None
+    description: Optional[str] = None
+    is_active: bool = True
+
+
+class ShiftGroupMemberOut(ORMBase):
+    id: int
+    employee_code: str
+    full_name: str
+    shift_name: Optional[str] = None
+
+
+class ShiftGroupShiftOut(ORMBase):
+    id: int
+    name: str
+
+
+class ShiftGroupCreate(ShiftGroupBase):
+    shift_ids: list[int] = []
+    employee_ids: list[int] = []
+
+
+class ShiftGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    shift_ids: Optional[list[int]] = None
+    employee_ids: Optional[list[int]] = None
+
+
+class ShiftGroupOut(ORMBase, ShiftGroupBase):
+    id: int
+    shift_ids: list[int] = []
+    employee_ids: list[int] = []
+    shifts: list[ShiftGroupShiftOut] = []
+    employees: list[ShiftGroupMemberOut] = []
+
+
+class ShiftGroupEmployeeMapping(BaseModel):
+    employee_ids: list[int]
+
+
 class ShiftBase(BaseModel):
     name: str
     start_time: time = time(9, 0)
@@ -171,6 +216,7 @@ class ShiftBase(BaseModel):
     target_hours: Optional[float] = None
     break_minutes: int = 0
     rotation_group: Optional[str] = None
+    shift_group_id: Optional[int] = None
 
 
 class ShiftCreate(ShiftBase):
@@ -192,10 +238,12 @@ class ShiftUpdate(BaseModel):
     target_hours: Optional[float] = None
     break_minutes: Optional[int] = None
     rotation_group: Optional[str] = None
+    shift_group_id: Optional[int] = None
 
 
 class ShiftOut(ORMBase, ShiftBase):
     id: int
+    shift_group_name: Optional[str] = None
 
 
 class EmployeeBase(BaseModel):
@@ -217,6 +265,7 @@ class EmployeeBase(BaseModel):
     department_id: Optional[int] = None
     designation_id: Optional[int] = None
     shift_id: Optional[int] = None
+    shift_group_id: Optional[int] = None
     location_id: Optional[int] = None
     manager_id: Optional[int] = None
 
@@ -245,6 +294,7 @@ class EmployeeUpdate(BaseModel):
     department_id: Optional[int] = None
     designation_id: Optional[int] = None
     shift_id: Optional[int] = None
+    shift_group_id: Optional[int] = None
     location_id: Optional[int] = None
     manager_id: Optional[int] = None
 
@@ -288,6 +338,7 @@ class EmployeeOut(ORMBase, EmployeeBase):
     department_name: Optional[str] = None
     designation_name: Optional[str] = None
     shift_name: Optional[str] = None
+    shift_group_name: Optional[str] = None
     created_at: Optional[datetime] = None
 
 

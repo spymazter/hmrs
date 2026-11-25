@@ -18,11 +18,12 @@ const EMPTY = {
   name: '', start_time: '09:00', end_time: '18:00', grace_minutes: 15,
   early_out_grace_minutes: 0, min_hours_for_full_day: 8, half_day_hours: 4,
   week_off_days: [6], is_active: true, color: '#4f46e5',
-  shift_type: 'fixed', target_hours: null, break_minutes: 0, rotation_group: '',
+  shift_type: 'fixed', target_hours: null, break_minutes: 0, rotation_group: '', shift_group_id: '',
 }
 
 export default function Shifts() {
   const [rows, setRows] = useState([])
+  const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -30,21 +31,27 @@ export default function Shifts() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(EMPTY)
 
-  const load = () => { api.get('/shifts').then((r) => setRows(r.data)).catch((e) => setError(errorMessage(e))).finally(() => setLoading(false)) }
+  const load = () => {
+    Promise.all([api.get('/shifts'), api.get('/shift-groups')])
+      .then(([s, g]) => { setRows(s.data); setGroups(g.data) })
+      .catch((e) => setError(errorMessage(e)))
+      .finally(() => setLoading(false))
+  }
   useEffect(() => { load() }, [])
 
   const openNew = () => { setEditing(null); setForm(EMPTY); setModal(true) }
   const openEdit = (row) => {
     setEditing(row.id)
-    setForm({ ...EMPTY, ...row, week_off_days: row.week_off_days || [], rotation_group: row.rotation_group || '' })
+    setForm({ ...EMPTY, ...row, week_off_days: row.week_off_days || [], rotation_group: row.rotation_group || '', shift_group_id: row.shift_group_id || '' })
     setModal(true)
   }
 
   const save = async () => {
     setError('')
     try {
-      if (editing) { await api.put(`/shifts/${editing}`, form); setNotice('Shift updated') }
-      else { await api.post('/shifts', form); setNotice('Shift created') }
+      const payload = { ...form, shift_group_id: form.shift_group_id === '' ? null : form.shift_group_id }
+      if (editing) { await api.put(`/shifts/${editing}`, payload); setNotice('Shift updated') }
+      else { await api.post('/shifts', payload); setNotice('Shift created') }
       setModal(false); load()
     } catch (err) { setError(errorMessage(err)) }
   }
@@ -67,6 +74,7 @@ export default function Shifts() {
         <DataTable loading={loading} rows={rows} columns={[
           { label: 'Shift', render: (r) => <><span className="strong">{r.name}</span><span className="sub">{r.start_time?.slice(0, 5)} – {r.end_time?.slice(0, 5)}</span></> },
           { label: 'Type', render: (r) => <span className="chip">{SHIFT_TYPES.find((t) => t.value === r.shift_type)?.label || 'Fixed hours'}</span> },
+          { label: 'Group', render: (r) => r.shift_group_name || '—' },
           { label: 'Full day', render: (r) => `${r.min_hours_for_full_day} hrs` },
           { label: 'Late grace', render: (r) => `${r.grace_minutes} min` },
           { label: 'Weekly off', render: (r) => (r.week_off_days || []).length ? r.week_off_days.map((d) => <span className="chip" key={d}>{DAYS[d]}</span>) : '—' },
@@ -86,7 +94,11 @@ export default function Shifts() {
             <SearchableSelect value={form.shift_type || 'fixed'} clearable={false}
               onChange={(v) => setForm({ ...form, shift_type: v })} options={SHIFT_TYPES} />
           </Field>
-          <Field label="Rotation group" hint="Shifts in the same group rotate weekly when no roster row exists.">
+          <Field label="Shift group" hint="Choose a group under People & shifts › Shift groups to share this shift with a mapped employee rotation.">
+            <SearchableSelect value={form.shift_group_id} onChange={(v) => setForm({ ...form, shift_group_id: v })}
+              options={groups.map((g) => ({ value: g.id, label: g.name }))} placeholder="— No group" />
+          </Field>
+          <Field label="Legacy rotation group" hint="Older free-text grouping. Used only when no shift group is selected.">
             <input value={form.rotation_group || ''} placeholder="e.g. OpsRotation" onChange={(e) => setForm({ ...form, rotation_group: e.target.value })} />
           </Field>
           <Field label="Start time"><input type="time" value={form.start_time?.slice(0, 5)} onChange={(e) => setForm({ ...form, start_time: e.target.value })} /></Field>

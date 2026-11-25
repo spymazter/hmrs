@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Employees from './pages/Employees'
 import MasterData from './pages/MasterData'
 import Shifts from './pages/Shifts'
+import ShiftGroups from './pages/ShiftGroups'
 import Devices from './pages/Devices'
 import Attendance from './pages/Attendance'
 import AdvancedReports from './pages/AdvancedReports'
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/designations" element={<Guard perm={['employee.view']}><MasterData type="designations" /></Guard>} />
             <Route path="/locations" element={<Guard perm={['employee.view']}><MasterData type="locations" /></Guard>} />
             <Route path="/shifts" element={<Guard perm={['shift.view', 'employee.view']}><Shifts /></Guard>} />
+            <Route path="/shift-groups" element={<Guard perm={['shift.view', 'employee.view']}><ShiftGroups /></Guard>} />
             <Route path="/leaves" element={<Guard perm={['leave.view']}><Leaves /></Guard>} />
             <Route path="/attendance" element={<Guard perm={['attendance.view']}><Attendance /></Guard>} />
             <Route path="/reports" element={<Guard perm={['report.view']}><Reports /></Guard>} />

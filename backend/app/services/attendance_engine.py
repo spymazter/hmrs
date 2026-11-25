@@ -22,12 +22,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Iterable
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import (
     AppSetting, CompOff, Employee, Holiday, LeaveRequest, OnDutyRequest,
-    PunchLog, Regularization, Shift, ShiftRoster,
+    PunchLog, Regularization, Shift, ShiftGroup, ShiftRoster,
 )
 from app.utils import round2
 
@@ -204,6 +205,12 @@ class AttendanceData:
     def __init__(self, db: Session, start: date, end: date, filters: EngineFilters | None = None):
         self.db = db
         self.filters = filters or EngineFilters()
+        # Explicit shift groups take priority over the legacy rotation_group
+        # text field when resolving a shift for a day.
+        self.group_shifts = {
+            group.id: sorted(group.shifts, key=lambda s: s.id)
+            for group in db.query(ShiftGroup).all()
+        }
         self.employees = self._load_employees()
         ids = [e.id for e in self.employees]
         self.punches = self._load_punches(start - timedelta(days=1), end + timedelta(days=1), ids)
@@ -242,7 +249,14 @@ class AttendanceData:
         if filters.designation_id:
             query = query.filter(Employee.designation_id == filters.designation_id)
         if filters.shift_id:
-            query = query.filter(Employee.shift_id == filters.shift_id)
+            group_ids = [
+                group_id for group_id, shifts in self.group_shifts.items()
+                if any(shift.id == filters.shift_id for shift in shifts)
+            ]
+            condition = Employee.shift_id == filters.shift_id
+            if group_ids:
+                condition = or_(condition, Employee.shift_group_id.in_(group_ids))
+            query = query.filter(condition)
         return query.order_by(Employee.employee_code).all()
 
     def _load_punches(self, start: date, end: date, employee_ids: list[int]) -> dict[int, list[NormalizedPunch]]:
@@ -489,10 +503,14 @@ class AttendanceEngine:
             shift = self.db.get(Shift, roster_shift_id)
             if shift:
                 return shift
-        # Rotational groups without an explicit roster rotate weekly from a
-        # fixed anchor.  An explicit roster row always wins.
-        group = employee.shift.rotation_group if employee.shift else None
-        shifts = data.rotation_shifts.get(group, []) if group else []
+        # Grouped employees rotate weekly from a fixed anchor when no roster
+        # row exists.  Legacy shift.rotation_group remains a fallback.
+        shifts = []
+        if employee.shift_group_id:
+            shifts = data.group_shifts.get(employee.shift_group_id) or []
+        if not shifts:
+            group = employee.shift.rotation_group if employee.shift else None
+            shifts = data.rotation_shifts.get(group, []) if group else []
         if shifts:
             anchor = date(2026, 1, 5)  # a Monday
             return shifts[((day - anchor).days // 7) % len(shifts)]
