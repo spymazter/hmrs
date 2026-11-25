@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Device, DeviceSyncState, Employee, PunchLog, Shift
 from app.services.attendance import recompute_records
+from app.services.identity import identifiers_available, new_identity_key
 
 logger = logging.getLogger(__name__)
 
@@ -274,14 +275,23 @@ def sync_device(
             for e in db.query(Employee).filter(Employee.device_user_id.isnot(None)).all()
         }
         new_users = 0
+        skipped_users = 0
         if settings.AUTO_CREATE_DEVICE_USERS:
             default_shift = _default_shift(db)
             for user in users:
                 uid = user["user_id"]
                 if not uid or uid in employees:
                     continue
+                code = f"DEV-{uid}"
+                owner_key = new_identity_key()
+                # A retired code/UID is never recycled: skip the device user
+                # instead of creating a second employee with a reserved ID.
+                if not identifiers_available(db, code, uid, owner_key):
+                    skipped_users += 1
+                    continue
                 emp = Employee(
-                    employee_code=f"DEV-{uid}",
+                    identity_key=owner_key,
+                    employee_code=code,
                     first_name=user["name"] or f"User {uid}",
                     device_user_id=uid,
                     status="active",
@@ -292,7 +302,11 @@ def sync_device(
                 db.flush()
                 employees[uid] = emp
                 new_users += 1
-        report("employees", f"Mapped device users; created {new_users} new employees", new_employees=new_users)
+        message = f"Mapped device users; created {new_users} new employees"
+        if skipped_users:
+            message += f"; skipped {skipped_users} reserved IDs"
+        report("employees", message, new_employees=new_users,
+               skipped_users=skipped_users)
 
         # Correct auto-created employees from earlier imports that were given
         # today's joining date before historical punches were considered.

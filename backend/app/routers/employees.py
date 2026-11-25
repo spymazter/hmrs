@@ -7,6 +7,7 @@ from app.models import Employee, Role, User
 from app.schemas import (
     EmployeeCreate, EmployeeListOut, EmployeeOut, EmployeeSelfUpdate, EmployeeUpdate,
 )
+from app.services.identity import IdentifierConflict
 
 router = APIRouter(prefix="/api/employees", tags=["Employees"])
 
@@ -83,25 +84,29 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db), _=De
     if data.get("device_user_id") and db.query(Employee).filter(Employee.device_user_id == data["device_user_id"]).first():
         raise HTTPException(400, "Device user ID is already assigned")
     employee = Employee(**data)
-    db.add(employee)
-    db.flush()
+    try:
+        db.add(employee)
+        db.flush()
 
-    if payload.create_login:
-        if db.query(User).filter(User.username == data["employee_code"]).first():
-            raise HTTPException(400, "A login with this username already exists")
-        employee_role = db.query(Role).filter(Role.name == "Employee").first()
-        login = User(
-            username=data["employee_code"],
-            email=data.get("email"),
-            full_name=employee.full_name,
-            password_hash=hash_password(payload.login_password or "emp123"),
-            employee_id=employee.id,
-            roles=[employee_role] if employee_role else [],
-            must_change_password=True,
-            profile_completed=False,
-        )
-        db.add(login)
-    db.commit()
+        if payload.create_login:
+            if db.query(User).filter(User.username == data["employee_code"]).first():
+                raise HTTPException(400, "A login with this username already exists")
+            employee_role = db.query(Role).filter(Role.name == "Employee").first()
+            login = User(
+                username=data["employee_code"],
+                email=data.get("email"),
+                full_name=employee.full_name,
+                password_hash=hash_password(payload.login_password or "emp123"),
+                employee_id=employee.id,
+                roles=[employee_role] if employee_role else [],
+                must_change_password=True,
+                profile_completed=False,
+            )
+            db.add(login)
+        db.commit()
+    except IdentifierConflict as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
     db.refresh(employee)
     return employee
 
@@ -126,7 +131,11 @@ def update_employee(
         raise HTTPException(404, "Employee not found")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(employee, key, value)
-    db.commit()
+    try:
+        db.commit()
+    except IdentifierConflict as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
     db.refresh(employee)
     return employee
 

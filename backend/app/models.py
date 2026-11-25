@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from uuid import uuid4
 
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer,
@@ -71,7 +72,10 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)
     profile_completed = Column(Boolean, default=False, nullable=False, server_default=text("0"))
-    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"))
+    identity_key = Column(String(64), unique=True, index=True, nullable=False,
+                          default=lambda: uuid4().hex)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"),
+                         unique=True, index=True)
     last_login = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
 
@@ -173,6 +177,8 @@ class Shift(Base):
 class Employee(Base):
     __tablename__ = "employees"
     id = Column(Integer, primary_key=True)
+    identity_key = Column(String(64), unique=True, index=True, nullable=False,
+                          default=lambda: uuid4().hex)
     employee_code = Column(String(50), unique=True, nullable=False, index=True)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), default="")
@@ -227,6 +233,25 @@ class Employee(Base):
     @property
     def location_name(self):
         return self.location.name if self.location else None
+
+
+class IdentifierReservation(Base):
+    """Permanent ownership record for employee codes, device UIDs and user links.
+
+    Rows are never deleted, so a retired identifier cannot be recycled after an
+    Employee or User has been removed from the database.
+    """
+    __tablename__ = "identifier_reservations"
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(40), nullable=False)
+    value = Column(String(100), nullable=False)
+    owner_key = Column(String(64), nullable=False, index=True)
+    employee_id = Column(Integer)
+    user_id = Column(Integer)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("kind", "value", name="uq_identifier_reservation"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -553,3 +578,8 @@ class AuditLog(Base):
     entity_id = Column(Integer)
     details = Column(JSON)
     created_at = Column(DateTime, default=datetime.now)
+
+
+# Register global identity guards.  Importing models always installs them, so
+# every write path (routers, sync, imports, seed and CLI) is covered.
+from app.services import identity as _identity  # noqa: E402,F401

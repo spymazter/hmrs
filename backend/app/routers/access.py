@@ -9,6 +9,7 @@ from app.schemas import (
     GroupCreate, GroupOut, GroupUpdate, RoleCreate, RoleOut, RoleUpdate,
     UserAssign, UserCreate, UserOut, UserUpdate,
 )
+from app.services.identity import IdentifierConflict
 
 router = APIRouter(prefix="/api/access", tags=["Access control"])
 
@@ -120,7 +121,11 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), _=Depends(re
     user.roles = db.query(Role).filter(Role.id.in_(payload.role_ids)).all()
     user.groups = db.query(RoleGroup).filter(RoleGroup.id.in_(payload.group_ids)).all()
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IdentifierConflict as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
     db.refresh(user)
     return user_to_dict(user)
 
@@ -146,7 +151,11 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
         user.password_hash = hash_password(password)
         if user.employee_id:
             user.must_change_password = True
-    db.commit()
+    try:
+        db.commit()
+    except IdentifierConflict as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
     db.refresh(user)
     return user_to_dict(user)
 

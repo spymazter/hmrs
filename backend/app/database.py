@@ -45,9 +45,11 @@ _COLUMN_MIGRATIONS = {
         "address": "TEXT",
         "location_id": "INTEGER",
         "shift_group_id": "INTEGER",
+        "identity_key": "VARCHAR(64)",
     },
     "users": {
         "profile_completed": "BOOLEAN DEFAULT 0 NOT NULL",
+        "identity_key": "VARCHAR(64)",
     },
     "shifts": {
         "shift_type": "VARCHAR(20) DEFAULT 'fixed'",
@@ -68,6 +70,72 @@ _COLUMN_MIGRATIONS = {
         "full_history": "BOOLEAN DEFAULT 0",
     },
 }
+
+
+def _migrate_identity_reservations() -> None:
+    """Make employee codes, device UIDs and user links permanent identities."""
+    statements = [
+        "UPDATE employees SET identity_key = lower(hex(randomblob(16))) "
+        "WHERE identity_key IS NULL OR identity_key = ''",
+        "UPDATE users SET identity_key = lower(hex(randomblob(16))) "
+        "WHERE identity_key IS NULL OR identity_key = ''",
+        """
+        CREATE TABLE IF NOT EXISTS identifier_reservations (
+            id INTEGER PRIMARY KEY,
+            kind VARCHAR(40) NOT NULL,
+            value VARCHAR(100) NOT NULL,
+            owner_key VARCHAR(64) NOT NULL,
+            employee_id INTEGER,
+            user_id INTEGER,
+            created_at DATETIME NOT NULL,
+            CONSTRAINT uq_identifier_reservation UNIQUE (kind, value)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_identifier_reservations_owner "
+        "ON identifier_reservations (owner_key)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_identity_key "
+        "ON employees (identity_key)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_identity_key "
+        "ON users (identity_key)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_employee_id "
+        "ON users (employee_id) WHERE employee_id IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_employee_code_ci "
+        "ON employees (lower(trim(employee_code)))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_device_user_id_ci "
+        "ON employees (lower(trim(device_user_id))) "
+        "WHERE device_user_id IS NOT NULL AND trim(device_user_id) <> ''",
+        """
+        INSERT OR IGNORE INTO identifier_reservations
+            (kind, value, owner_key, employee_id, created_at)
+        SELECT 'employee_code', lower(trim(employee_code)), identity_key,
+               id, datetime('now')
+        FROM employees
+        WHERE employee_code IS NOT NULL AND trim(employee_code) <> ''
+          AND identity_key IS NOT NULL AND identity_key <> ''
+        """,
+        """
+        INSERT OR IGNORE INTO identifier_reservations
+            (kind, value, owner_key, employee_id, created_at)
+        SELECT 'device_user_id', lower(trim(device_user_id)), identity_key,
+               id, datetime('now')
+        FROM employees
+        WHERE device_user_id IS NOT NULL AND trim(device_user_id) <> ''
+          AND identity_key IS NOT NULL AND identity_key <> ''
+        """,
+        """
+        INSERT OR IGNORE INTO identifier_reservations
+            (kind, value, owner_key, employee_id, user_id, created_at)
+        SELECT 'user_employee', e.identity_key, u.identity_key,
+               e.id, u.id, datetime('now')
+        FROM users u JOIN employees e ON e.id = u.employee_id
+        WHERE u.employee_id IS NOT NULL
+          AND e.identity_key IS NOT NULL AND e.identity_key <> ''
+          AND u.identity_key IS NOT NULL AND u.identity_key <> ''
+        """,
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
 
 
 def run_migrations() -> None:
@@ -99,6 +167,8 @@ def run_migrations() -> None:
             connection.execute(text(
                 "UPDATE users SET profile_completed = 1 WHERE profile_completed IS NULL"
             ))
+
+    _migrate_identity_reservations()
 
 
 def get_db():
