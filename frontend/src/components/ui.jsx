@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, Check, CheckCircle2, ChevronDown, Inbox, Search, X } from 'lucide-react'
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Check, CheckCircle2, ChevronDown, Inbox, Search, X } from 'lucide-react'
 
 export function PageHead({ title, subtitle, actions }) {
   return (
@@ -115,7 +115,7 @@ export function SearchableSelect({
   )
 }
 
-export function DataTable({ columns, rows, loading, emptyText = 'No records found' }) {
+export function DataTable({ columns, rows, loading, emptyText = 'No records found', sort, onSort }) {
   if (loading) return <div className="loader">Loading…</div>
   if (!rows || rows.length === 0) {
     return <div className="empty"><Inbox size={30} /><div>{emptyText}</div></div>
@@ -123,7 +123,21 @@ export function DataTable({ columns, rows, loading, emptyText = 'No records foun
   return (
     <div className="table-wrap">
       <table>
-        <thead><tr>{columns.map((col, i) => <th key={i} className={col.className || ''}>{col.label}</th>)}</tr></thead>
+        <thead><tr>{columns.map((col, i) => {
+          const active = sort?.key === col.sortKey
+          return (
+            <th key={i} className={col.className || ''}>
+              {col.sortKey && onSort ? (
+                <button type="button" className={`sort-header ${active ? 'active' : ''}`} onClick={() => onSort(col.sortKey)} title={`Sort by ${col.label}`}>
+                  {col.label}
+                  {active
+                    ? (sort.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)
+                    : <ArrowUpDown size={12} className="sort-idle" />}
+                </button>
+              ) : col.label}
+            </th>
+          )
+        })}</tr></thead>
         <tbody>
           {rows.map((row, i) => (
             <tr key={row.id ?? i}>

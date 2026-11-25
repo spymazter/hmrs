@@ -179,6 +179,15 @@ thead th {
   font-size: 10.5px; letter-spacing: .5px; text-transform: uppercase; font-weight: 700;
   padding: 11px 14px; border-bottom: 1px solid var(--slate-200); white-space: nowrap;
 }
+.sort-header {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 0; background: transparent; padding: 0;
+  color: inherit; font: inherit; letter-spacing: inherit;
+  text-transform: inherit; cursor: pointer;
+}
+.sort-header:hover, .sort-header.active { color: var(--slate-700); }
+.sort-header svg { opacity: .8; }
+.sort-header .sort-idle { opacity: .35; }
 tbody td { padding: 11px 14px; border-bottom: 1px solid var(--slate-100); color: var(--slate-700); }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: #fafbff; }

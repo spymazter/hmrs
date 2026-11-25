@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import api, { errorMessage } from '../api'
@@ -29,6 +29,7 @@ export default function Employees() {
   const [dept, setDept] = useState('')
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState(searchParams.get('status') || '')
+  const [sort, setSort] = useState(null)
   const [master, setMaster] = useState({ departments: [], designations: [], shifts: [], shiftGroups: [], locations: [], employees: [] })
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState(EMPTY)
@@ -51,6 +52,26 @@ export default function Employees() {
   }, [])
 
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t) }, [search, dept, status])
+
+  const sortValue = (row, key) => {
+    if (key === 'employee') return `${row.first_name || ''} ${row.last_name || ''}`.trim()
+    if (key === 'device_user_id') return row.device_user_id || ''
+    return row[key] || ''
+  }
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows
+    return [...rows].sort((a, b) => {
+      const av = sortValue(a, sort.key)
+      const bv = sortValue(b, sort.key)
+      if (!av && bv) return 1
+      if (av && !bv) return -1
+      const result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+      return sort.direction === 'desc' ? -result : result
+    })
+  }, [rows, sort])
+  const toggleSort = (key) => setSort((current) => (
+    !current || current.key !== key ? { key, direction: 'asc' } : { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+  ))
 
   const openNew = () => { setEditing(null); setForm(EMPTY); setModal(true) }
   const openEdit = (row) => {
@@ -86,11 +107,11 @@ export default function Employees() {
   }
 
   const columns = [
-    { label: 'Employee', render: (r) => <><span className="strong">{r.first_name} {r.last_name}</span><span className="sub">{r.employee_code} · {r.email || '—'}</span></> },
-    { label: 'Department', render: (r) => r.department_name || '—' },
-    { label: 'Designation', render: (r) => r.designation_name || '—' },
+    { label: 'Employee', sortKey: 'employee', render: (r) => <><span className="strong">{r.first_name} {r.last_name}</span><span className="sub">{r.employee_code} · {r.email || '—'}</span></> },
+    { label: 'Department', sortKey: 'department_name', render: (r) => r.department_name || '—' },
+    { label: 'Designation', sortKey: 'designation_name', render: (r) => r.designation_name || '—' },
     { label: 'Shift', render: (r) => <><span>{r.shift_name || '—'}</span><span className="sub">{r.shift_group_name || 'No group'}</span></> },
-    { label: 'Device UID', render: (r) => <span className="mono">{r.device_user_id || '—'}</span> },
+    { label: 'Device UID', sortKey: 'device_user_id', render: (r) => <span className="mono">{r.device_user_id || '—'}</span> },
     { label: 'Status', render: (r) => <Badge status={r.status} /> },
     ...(has('employee.edit', 'employee.delete') ? [{ label: 'Actions', className: 'text-right', render: (r) => (
       <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
@@ -121,7 +142,7 @@ export default function Employees() {
             options={STATUS_OPTIONS} placeholder="All statuses" style={{ width: 150 }}
           />
         </div>
-        <DataTable columns={columns} rows={rows} loading={loading} emptyText="No employees found" />
+        <DataTable columns={columns} rows={sortedRows} loading={loading} emptyText="No employees found" sort={sort} onSort={toggleSort} />
       </Card>
 
       <Modal
