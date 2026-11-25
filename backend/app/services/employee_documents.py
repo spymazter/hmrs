@@ -1,4 +1,4 @@
-"""Storage and visibility rules for HR-uploaded employee documents."""
+"""Storage and visibility rules for employee documents and self-service KYC uploads."""
 
 import os
 from datetime import datetime
@@ -9,11 +9,18 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Employee, EmployeeDocument, User
 
-CATEGORIES = {
+HR_CATEGORIES = {
     "appointment_order": "Appointment order",
     "medical_fitness": "Medical fitness certificate",
     "antecedent_verification": "Antecedent verification form",
 }
+EMPLOYEE_KYC_CATEGORIES = {
+    "employee_pan": "Employee PAN card",
+    "employee_aadhaar": "Employee Aadhaar card",
+    "nominee_pan": "Nominee PAN card",
+    "nominee_aadhaar": "Nominee Aadhaar card",
+}
+CATEGORIES = {**HR_CATEGORIES, **EMPLOYEE_KYC_CATEGORIES}
 CONFIDENTIAL = {"antecedent_verification"}
 ALLOWED_EXTENSIONS = {
     ".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png",
@@ -23,6 +30,10 @@ MAX_BYTES = 20 * 1024 * 1024
 
 class DocumentError(ValueError):
     """Raised for invalid uploads or unauthorised document access."""
+
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _direct_permissions(user: User) -> set[str]:
@@ -43,6 +54,13 @@ def is_hr(user: User) -> bool:
         bool(names & {"hr manager", "admin"})
         or "document.hr" in _direct_permissions(user)
         or (getattr(user, "username", "") or "").casefold() == "admin"
+    )
+
+
+def can_self_upload(user: User) -> bool:
+    """A user with a linked employee profile may manage their own KYC files."""
+    return bool(user.employee_id) and bool(
+        _direct_permissions(user) & {"self.portal", "document.view"}
     )
 
 
@@ -69,7 +87,7 @@ def query_visible(db: Session, user: User, employee_id: int | None = None,
             ~EmployeeDocument.category.in_(CONFIDENTIAL),
         )
         if employee_id and employee_id != user.employee_id:
-            raise DocumentError("You can only view your own documents")
+            raise DocumentError("You can only view your own documents", 403)
     return query.order_by(EmployeeDocument.uploaded_at.desc())
 
 
@@ -94,21 +112,25 @@ def serialize(db: Session, document: EmployeeDocument) -> dict:
 
 def save_document(db: Session, user: User, employee_id: int, category: str,
                   filename: str, content_type: str | None, content: bytes) -> EmployeeDocument:
-    if not is_hr(user):
-        raise DocumentError("Only HR can upload employee documents")
+    hr_user = is_hr(user)
+    if not hr_user:
+        if not can_self_upload(user):
+            raise DocumentError("Only HR can upload employee documents", 403)
+        if employee_id != user.employee_id:
+            raise DocumentError("You can only upload your own documents", 403)
+        if category not in EMPLOYEE_KYC_CATEGORIES:
+            raise DocumentError("Only HR can upload this document type", 403)
     if category not in CATEGORIES:
         raise DocumentError("Unknown document type")
     if not filename or not content:
         raise DocumentError("An empty file cannot be uploaded")
     extension = os.path.splitext(filename)[1].lower()
     if extension not in ALLOWED_EXTENSIONS:
-        raise DocumentError(
-            "Only PDF, Word and image files are allowed"
-        )
+        raise DocumentError("Only PDF, Word and image files are allowed")
     if len(content) > MAX_BYTES:
         raise DocumentError("File is larger than the 20 MB limit")
     if db.get(Employee, employee_id) is None:
-        raise DocumentError("Employee not found")
+        raise DocumentError("Employee not found", 404)
 
     directory = settings.DOCUMENT_DIR
     os.makedirs(directory, exist_ok=True)
@@ -137,11 +159,18 @@ def document_path(document: EmployeeDocument) -> str:
 
 
 def remove_document(db: Session, user: User, document_id: int) -> None:
-    if not is_hr(user):
-        raise DocumentError("Only HR can remove employee documents")
     document = db.get(EmployeeDocument, document_id)
     if document is None:
-        raise DocumentError("Document not found")
+        raise DocumentError("Document not found", 404)
+    if not is_hr(user):
+        own_kyc_upload = (
+            can_self_upload(user)
+            and document.category in EMPLOYEE_KYC_CATEGORIES
+            and document.employee_id == user.employee_id
+            and document.uploaded_by == user.id
+        )
+        if not own_kyc_upload:
+            raise DocumentError("You can only remove your own KYC documents", 403)
     path = document_path(document)
     if os.path.exists(path):
         os.remove(path)

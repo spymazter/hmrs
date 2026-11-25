@@ -22,6 +22,7 @@ EMPLOYEE_EXPORT_HEADERS = [
     "Emergency Contact Name", "Emergency Contact Phone", "Emergency Contact Relationship",
     "Address", "Date of Joining", "Status", "Department", "Designation", "Shift",
     "Shift Group", "Location", "Reporting Manager", "Created At",
+    "Nominee Name", "Nominee Relationship",
 ]
 
 
@@ -51,6 +52,8 @@ def _employee_export_row(employee: Employee) -> dict:
         employee.location.label if employee.location else None,
         employee.manager.full_name if employee.manager else None,
         employee.created_at,
+        employee.nominee_name,
+        employee.nominee_relationship,
     ]
     return {
         header: _export_value(value)

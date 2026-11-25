@@ -259,6 +259,8 @@ class EmployeeBase(BaseModel):
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     address: Optional[str] = None
+    nominee_name: Optional[str] = None
+    nominee_relationship: Optional[str] = None
     date_of_joining: Optional[date] = None
     status: str = "active"
     device_user_id: Optional[str] = None
@@ -288,6 +290,8 @@ class EmployeeUpdate(BaseModel):
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     address: Optional[str] = None
+    nominee_name: Optional[str] = None
+    nominee_relationship: Optional[str] = None
     date_of_joining: Optional[date] = None
     status: Optional[str] = None
     device_user_id: Optional[str] = None
@@ -331,6 +335,8 @@ class EmployeeSelfUpdate(BaseModel):
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     address: Optional[str] = None
+    nominee_name: Optional[str] = None
+    nominee_relationship: Optional[str] = None
 
 
 class OnboardingRequest(ChangePasswordRequest):

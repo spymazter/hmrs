@@ -44,6 +44,8 @@ _COLUMN_MIGRATIONS = {
         "emergency_contact_phone": "VARCHAR(30)",
         "emergency_contact_relationship": "VARCHAR(50)",
         "address": "TEXT",
+        "nominee_name": "VARCHAR(100)",
+        "nominee_relationship": "VARCHAR(50)",
         "location_id": "INTEGER",
         "shift_group_id": "INTEGER",
         "identity_key": "VARCHAR(64)",

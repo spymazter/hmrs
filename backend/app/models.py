@@ -191,6 +191,8 @@ class Employee(Base):
     emergency_contact_phone = Column(String(30))
     emergency_contact_relationship = Column(String(50))
     address = Column(Text)
+    nominee_name = Column(String(100))
+    nominee_relationship = Column(String(50))
     date_of_joining = Column(Date)
     status = Column(String(30), default="active")  # active / inactive / left
     device_user_id = Column(String(50), unique=True, index=True)

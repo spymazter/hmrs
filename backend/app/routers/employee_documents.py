@@ -1,4 +1,4 @@
-"""HR-managed employee documents with category-based visibility."""
+"""Employee documents with HR management and self-service KYC uploads."""
 
 import os
 
@@ -38,7 +38,7 @@ async def upload_document(
     category: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(require("document.manage")),
+    user: User = Depends(require("document.manage", "document.view", "self.portal")),
 ):
     content = await file.read()
     try:
@@ -47,8 +47,7 @@ async def upload_document(
             file.content_type, content,
         )
     except DocumentError as exc:
-        status = 403 if "Only HR" in str(exc) else 400
-        raise HTTPException(status, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc
     return serialize(db, document)
 
 
@@ -75,10 +74,9 @@ def download_document(
 def delete_document(
     document_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require("document.manage")),
+    user: User = Depends(require("document.manage", "document.view", "self.portal")),
 ):
     try:
         remove_document(db, user, document_id)
     except DocumentError as exc:
-        status = 403 if "Only HR" in str(exc) else 404
-        raise HTTPException(status, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc

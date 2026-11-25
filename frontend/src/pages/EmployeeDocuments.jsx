@@ -10,6 +10,10 @@ const CATEGORIES = [
   { value: 'appointment_order', label: 'Appointment order' },
   { value: 'medical_fitness', label: 'Medical fitness certificate' },
   { value: 'antecedent_verification', label: 'Antecedent verification form (HR only)' },
+  { value: 'employee_pan', label: 'Employee PAN card' },
+  { value: 'employee_aadhaar', label: 'Employee Aadhaar card' },
+  { value: 'nominee_pan', label: 'Nominee PAN card' },
+  { value: 'nominee_aadhaar', label: 'Nominee Aadhaar card' },
 ]
 
 const EMPTY = { employee_id: '', category: 'appointment_order' }
@@ -161,7 +165,7 @@ export default function EmployeeDocuments() {
     <>
       <PageHead
         title="Employee documents"
-        subtitle="HR uploads appointment orders, medical fitness certificates and antecedent verification forms"
+        subtitle="HR documents and employee-uploaded PAN / Aadhaar KYC files"
         actions={canUpload && (
           <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setModal(true) }}>
             <Upload size={15} /> Upload document
@@ -188,7 +192,7 @@ export default function EmployeeDocuments() {
           emptyText={isHR ? 'No documents uploaded yet' : 'No documents available for your profile'}
         />
         <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
-          Appointment orders and medical fitness certificates can be downloaded by the employee. Antecedent verification forms are visible to HR only.
+          Employees can download their own documents and upload PAN / Aadhaar cards from My portal. HR sees every document; antecedent verification forms are HR-only.
         </p>
       </Card>
 

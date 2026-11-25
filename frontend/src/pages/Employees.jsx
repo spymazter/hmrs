@@ -14,8 +14,9 @@ const GENDER_OPTIONS = ['Male', 'Female', 'Other'].map((v) => ({ value: v, label
 
 const EMPTY = {
   employee_code: '', first_name: '', last_name: '', email: '', phone: '',
-  gender: '', date_of_joining: todayStr(), status: 'active', device_user_id: '',
+  gender: '', date_of_birth: '', date_of_joining: todayStr(), status: 'active', device_user_id: '',
   department_id: '', designation_id: '', shift_id: '', shift_group_id: '', location_id: '', manager_id: '',
+  nominee_name: '', nominee_relationship: '',
   create_login: false, login_password: 'emp123',
 }
 
@@ -116,6 +117,7 @@ export default function Employees() {
       const payload = { ...form }
       ;['department_id', 'designation_id', 'shift_id', 'shift_group_id', 'location_id', 'manager_id'].forEach((k) => { if (payload[k] === '') payload[k] = null })
       if (!payload.date_of_joining) payload.date_of_joining = null
+      if (!payload.date_of_birth) payload.date_of_birth = null
       if (editing) {
         delete payload.create_login
         delete payload.login_password
@@ -138,6 +140,7 @@ export default function Employees() {
 
   const columns = [
     { label: 'Employee', sortKey: 'employee', render: (r) => <><span className="strong">{r.first_name} {r.last_name}</span><span className="sub">{r.employee_code} · {r.email || '—'}</span></> },
+    { label: 'Nominee', render: (r) => <><span>{r.nominee_name || '—'}</span>{r.nominee_relationship && <span className="sub">{r.nominee_relationship}</span>}</> },
     { label: 'Department', sortKey: 'department_name', render: (r) => r.department_name || '—' },
     { label: 'Designation', sortKey: 'designation_name', render: (r) => r.designation_name || '—' },
     { label: 'Shift', render: (r) => <><span>{r.shift_name || '—'}</span><span className="sub">{r.shift_group_name || 'No group'}</span></> },
@@ -206,7 +209,10 @@ export default function Employees() {
           <Field label="Shift group" hint="Shared rotation group; mapped on Shift groups page too"><SearchableSelect value={form.shift_group_id} onChange={(v) => setForm({ ...form, shift_group_id: v })} options={master.shiftGroups.map((g) => ({ value: g.id, label: g.name }))} placeholder="— No group" /></Field>
           <Field label="Location"><SearchableSelect value={form.location_id} onChange={(v) => setForm({ ...form, location_id: v })} options={master.locations.map((l) => ({ value: l.id, label: l.label || l.name }))} placeholder="—" /></Field>
           <Field label="Reporting manager"><SearchableSelect value={form.manager_id} onChange={(v) => setForm({ ...form, manager_id: v })} options={master.employees.filter((e) => e.id !== editing).map((e) => ({ value: e.id, label: `${e.employee_code} — ${e.first_name} ${e.last_name}` }))} placeholder="—" /></Field>
+          <Field label="Date of birth"><input type="date" value={form.date_of_birth || ''} onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })} /></Field>
           <Field label="Date of joining"><input type="date" value={form.date_of_joining} onChange={(e) => setForm({ ...form, date_of_joining: e.target.value })} /></Field>
+          <Field label="Nominee name"><input value={form.nominee_name || ''} onChange={(e) => setForm({ ...form, nominee_name: e.target.value })} placeholder="—" /></Field>
+          <Field label="Nominee relationship"><input value={form.nominee_relationship || ''} onChange={(e) => setForm({ ...form, nominee_relationship: e.target.value })} placeholder="—" /></Field>
           <Field label="Status"><SearchableSelect value={form.status} onChange={(v) => setForm({ ...form, status: v })} options={STATUS_OPTIONS} clearable={false} /></Field>
           {!editing && (
             <>

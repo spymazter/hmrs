@@ -1,20 +1,37 @@
-import { useEffect, useState } from 'react'
-import { CalendarDays, Download, Pencil, UserCircle2, Wallet } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  CalendarDays, Download, FileText, Pencil, Trash2, Upload, UserCircle2, Wallet,
+} from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Card, DataTable, Field, Modal, Notice, PageHead, Stat, fmtTime, todayStr } from '../components/ui'
+import {
+  Badge, Card, DataTable, Field, Modal, Notice, PageHead, SearchableSelect, Stat,
+  fmtTime, todayStr,
+} from '../components/ui'
+
+const KYC_CATEGORIES = [
+  { value: 'employee_pan', label: 'Employee PAN card' },
+  { value: 'employee_aadhaar', label: 'Employee Aadhaar card' },
+  { value: 'nominee_pan', label: 'Nominee PAN card' },
+  { value: 'nominee_aadhaar', label: 'Nominee Aadhaar card' },
+]
 
 export default function MyPortal() {
   const { user, setUser } = useAuth()
   const [profile, setProfile] = useState(null)
   const [attendance, setAttendance] = useState([])
   const [payslips, setPayslips] = useState([])
+  const [documents, setDocuments] = useState([])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [from, setFrom] = useState(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10))
   const [editOpen, setEditOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({})
+  const [kycCategory, setKycCategory] = useState(KYC_CATEGORIES[0].value)
+  const [kycFile, setKycFile] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const kycFileRef = useRef(null)
 
   const personalFields = [
     ['first_name', 'First name'], ['last_name', 'Last name'],
@@ -23,12 +40,24 @@ export default function MyPortal() {
     ['gender', 'Gender'], ['emergency_contact_name', 'Emergency contact name'],
     ['emergency_contact_phone', 'Emergency contact phone'],
     ['emergency_contact_relationship', 'Relationship'], ['address', 'Address'],
+    ['nominee_name', 'Nominee name'], ['nominee_relationship', 'Nominee relationship'],
   ]
+
+  const loadDocuments = () => {
+    api.get('/employee-documents')
+      .then((r) => setDocuments(r.data))
+      .catch(() => {})
+  }
 
   useEffect(() => {
     api.get('/employees/me').then((r) => setProfile(r.data)).catch((e) => setError(errorMessage(e)))
-    api.get(`/attendance/records?from_date=${from}&to_date=${todayStr()}&limit=100`).then((r) => setAttendance(r.data.items)).catch((e) => setError(errorMessage(e)))
     api.get('/payroll/payslips').then((r) => setPayslips(r.data)).catch(() => {})
+    loadDocuments()
+  }, [])
+
+  useEffect(() => {
+    api.get(`/attendance/records?from_date=${from}&to_date=${todayStr()}&limit=100`)
+      .then((r) => setAttendance(r.data.items)).catch((e) => setError(errorMessage(e)))
   }, [from])
 
   const download = async (slip) => {
@@ -62,7 +91,8 @@ export default function MyPortal() {
   const saveProfile = async () => {
     setSaving(true); setError(''); setNotice('')
     try {
-      const r = await api.put('/employees/me', form)
+      const payload = { ...form, date_of_birth: form.date_of_birth || null }
+      const r = await api.put('/employees/me', payload)
       setProfile(r.data)
       setUser((u) => u ? {
         ...u,
@@ -70,15 +100,59 @@ export default function MyPortal() {
         email: r.data.email || u.email,
       } : u)
       setEditOpen(false)
-      setNotice('Personal details updated')
+      setNotice('Personal and nominee details updated')
     } catch (err) { setError(errorMessage(err)) } finally { setSaving(false) }
   }
 
+  const uploadKyc = async () => {
+    if (!profile || !kycFile) {
+      setError('Choose a file to upload')
+      return
+    }
+    setError(''); setNotice(''); setUploading(true)
+    try {
+      const body = new FormData()
+      body.append('employee_id', String(profile.id))
+      body.append('category', kycCategory)
+      body.append('file', kycFile)
+      const response = await api.post('/employee-documents', body)
+      setKycFile(null)
+      if (kycFileRef.current) kycFileRef.current.value = ''
+      setNotice(`${response.data.category_label} uploaded`)
+      loadDocuments()
+    } catch (err) { setError(errorMessage(err)) } finally { setUploading(false) }
+  }
+
+  const downloadDocument = async (row) => {
+    setError('')
+    try {
+      const response = await api.get(`/employee-documents/${row.id}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = row.original_filename
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (err) { setError(errorMessage(err)) }
+  }
+
+  const removeDocument = async (row) => {
+    if (!window.confirm(`Remove ${row.original_filename}?`)) return
+    setError(''); setNotice('')
+    try {
+      await api.delete(`/employee-documents/${row.id}`)
+      setNotice('Document removed')
+      loadDocuments()
+    } catch (err) { setError(errorMessage(err)) }
+  }
+
   const present = attendance.filter((a) => a.status === 'present').length
+  const kycDocuments = documents.filter((document) =>
+    KYC_CATEGORIES.some((category) => category.value === document.category))
 
   return (
     <>
-      <PageHead title="My portal" subtitle="Your profile, attendance history and salary slips"
+      <PageHead title="My portal" subtitle="Your profile, KYC documents, attendance and salary slips"
         actions={<>
           <button className="btn btn-outline" disabled={!payslips.length} onClick={downloadAll}><Download size={15} /> Download all slips</button>
           <button className="btn btn-primary" disabled={!profile} onClick={openEdit}><Pencil size={15} /> Edit personal details</button>
@@ -123,6 +197,8 @@ export default function MyPortal() {
                 ['Emergency contact', profile.emergency_contact_name ? `${profile.emergency_contact_name}${profile.emergency_contact_phone ? ` · ${profile.emergency_contact_phone}` : ''}` : '—'],
                 ['Relationship', profile.emergency_contact_relationship || '—'],
                 ['Address', profile.address || '—'],
+                ['Nominee name', profile.nominee_name || '—'],
+                ['Nominee relationship', profile.nominee_relationship || '—'],
                 ['Department', profile.department_name || '—'],
                 ['Designation', profile.designation_name || '—'],
                 ['Shift', profile.shift_name || '—'],
@@ -130,6 +206,43 @@ export default function MyPortal() {
                 ['Date of joining', profile.date_of_joining || '—'],
               ].map(([label, value]) => <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}><span style={{ color: '#64748b' }}>{label}</span><strong style={{ textAlign: 'right' }}>{value}</strong></div>)}
             </div> : <div className="loader">Loading profile…</div>}
+          </Card>
+          <Card title="KYC documents" subtitle="PAN and Aadhaar cards are visible to HR">
+            <div className="form-grid" style={{ marginBottom: 12 }}>
+              <Field label="Document type" full>
+                <SearchableSelect
+                  value={kycCategory}
+                  onChange={setKycCategory}
+                  options={KYC_CATEGORIES}
+                  placeholder="Select document type"
+                  clearable={false}
+                />
+              </Field>
+              <Field label="Image or PDF" full>
+                <input ref={kycFileRef} type="file" accept=".jpg,.jpeg,.png,.pdf"
+                  onChange={(e) => setKycFile(e.target.files?.[0] || null)} />
+              </Field>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <button className="btn btn-primary" disabled={!profile || !kycFile || uploading} onClick={uploadKyc}>
+                  <Upload size={15} /> {uploading ? 'Uploading…' : 'Upload document'}
+                </button>
+              </div>
+            </div>
+            <DataTable rows={kycDocuments} emptyText="No KYC documents uploaded yet" columns={[
+              { label: 'Document', render: (r) => <Badge status="info">{r.category_label}</Badge> },
+              { label: 'File', render: (r) => <><div>{r.original_filename}</div><div className="muted">{Math.ceil((r.size_bytes || 0) / 1024)} KB</div></> },
+              { label: 'Uploaded', render: (r) => <span className="muted">{r.uploaded_at ? r.uploaded_at.slice(0, 10) : '—'}</span> },
+              { label: '', className: 'text-right', render: (r) => (
+                <span style={{ display: 'inline-flex', gap: 6 }}>
+                  <button className="btn btn-outline btn-sm" onClick={() => downloadDocument(r)}><Download size={14} /> Download</button>
+                  {r.uploaded_by === user?.id && <button className="btn btn-outline btn-sm" onClick={() => removeDocument(r)}><Trash2 size={14} /></button>}
+                </span>
+              ) },
+            ]} />
+            <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+              <FileText size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
+              Uploaded PAN and Aadhaar cards appear in People &amp; shifts → Documents for HR.
+            </p>
           </Card>
         </div>
       </div>
