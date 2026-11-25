@@ -1,4 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import csv
+import io
+from datetime import date, datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
 from app.auth import can, get_current_user, hash_password, require
@@ -10,6 +15,99 @@ from app.schemas import (
 from app.services.identity import IdentifierConflict
 
 router = APIRouter(prefix="/api/employees", tags=["Employees"])
+
+EMPLOYEE_EXPORT_HEADERS = [
+    "ID", "Employee Code", "Device UID", "First Name", "Last Name", "Full Name",
+    "Email", "Phone", "Alternate Phone", "Date of Birth", "Gender",
+    "Emergency Contact Name", "Emergency Contact Phone", "Emergency Contact Relationship",
+    "Address", "Date of Joining", "Status", "Department", "Designation", "Shift",
+    "Shift Group", "Location", "Reporting Manager", "Created At",
+]
+
+
+def _export_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _employee_export_row(employee: Employee) -> dict:
+    values = [
+        employee.id, employee.employee_code, employee.device_user_id,
+        employee.first_name, employee.last_name, employee.full_name,
+        employee.email, employee.phone, employee.alternate_phone,
+        employee.date_of_birth, employee.gender,
+        employee.emergency_contact_name, employee.emergency_contact_phone,
+        employee.emergency_contact_relationship, employee.address,
+        employee.date_of_joining, employee.status,
+        employee.department.name if employee.department else None,
+        employee.designation.name if employee.designation else None,
+        employee.shift.name if employee.shift else None,
+        employee.shift_group.name if employee.shift_group else None,
+        employee.location.label if employee.location else None,
+        employee.manager.full_name if employee.manager else None,
+        employee.created_at,
+    ]
+    return {
+        header: _export_value(value)
+        for header, value in zip(EMPLOYEE_EXPORT_HEADERS, values)
+    }
+
+
+def _filtered_employees(db: Session, search: str = "", department_id: int | None = None,
+                        status: str | None = None):
+    query = db.query(Employee)
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            (Employee.first_name.ilike(like))
+            | (Employee.last_name.ilike(like))
+            | (Employee.employee_code.ilike(like))
+            | (Employee.email.ilike(like))
+        )
+    if department_id:
+        query = query.filter(Employee.department_id == department_id)
+    if status:
+        query = query.filter(Employee.status == status)
+    return query
+
+
+def _employee_export_response(rows: list[dict], file_format: str):
+    filename = f"employees_{date.today().isoformat()}"
+    if file_format == "csv":
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=EMPLOYEE_EXPORT_HEADERS)
+        writer.writeheader()
+        writer.writerows(rows)
+        return Response(
+            content=output.getvalue().encode("utf-8-sig"),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}.csv"',
+                "X-Total-Count": str(len(rows)),
+            },
+        )
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Employees"
+    sheet.append(EMPLOYEE_EXPORT_HEADERS)
+    for row in rows:
+        sheet.append([row[header] for header in EMPLOYEE_EXPORT_HEADERS])
+    output = io.BytesIO()
+    book.save(output)
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}.xlsx"',
+            "X-Total-Count": str(len(rows)),
+        },
+    )
 
 
 @router.get("/me", response_model=EmployeeOut)
@@ -58,22 +156,25 @@ def list_employees(
     db: Session = Depends(get_db),
     user: User = Depends(require("employee.view")),
 ):
-    query = db.query(Employee)
-    if search:
-        like = f"%{search}%"
-        query = query.filter(
-            (Employee.first_name.ilike(like))
-            | (Employee.last_name.ilike(like))
-            | (Employee.employee_code.ilike(like))
-            | (Employee.email.ilike(like))
-        )
-    if department_id:
-        query = query.filter(Employee.department_id == department_id)
-    if status:
-        query = query.filter(Employee.status == status)
+    query = _filtered_employees(db, search, department_id, status)
     total = query.count()
     items = query.order_by(Employee.employee_code).offset(skip).limit(min(limit, 500)).all()
     return {"items": items, "total": total}
+
+
+@router.get("/export")
+def export_employees(
+    search: str = "",
+    department_id: int | None = None,
+    status: str | None = None,
+    file_format: str = Query("xlsx", alias="format", pattern="^(xlsx|csv)$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require("employee.view")),
+):
+    """Download every employee matching the current Employee-page filters."""
+    employees = _filtered_employees(db, search, department_id, status).order_by(Employee.employee_code).all()
+    rows = [_employee_export_row(employee) for employee in employees]
+    return _employee_export_response(rows, file_format)
 
 
 @router.post("", response_model=EmployeeOut, status_code=201)

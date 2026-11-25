@@ -98,7 +98,7 @@ If the device is unreachable in `live` mode, the Devices page shows the connecti
 ## Features
 
 - **Authentication & RBAC** — JWT login, permissions, roles, **role groups** (combine any roles), direct role assignment, and group assignment. Effective permissions = union of direct roles + all roles in assigned groups.
-- **Employee master** — code, personal details, department, designation, location, shift, manager, device UID, optional self-service login.
+- **Employee master** — code, personal details, department, designation, location, shift, manager, device UID, optional self-service login. The **Employees** page has an **Export** button that downloads every employee matching the current search/department/status filters as XLSX (`GET /api/employees/export?format=csv` is also supported).
 - **Employee documents** — HR/admin upload appointment orders, medical fitness certificates and antecedent verification forms from **People & shifts → Documents**. The linked employee can view/download appointment orders and medical fitness certificates; antecedent verification forms are HR-only. Files are stored outside the database in the persistent `data/documents` directory and served only through authenticated API routes.
 - **Permanent identity rules** — employee codes and device UIDs are unique case-insensitively and reserved for life. A retired or deleted ID can never be reassigned to another employee, and an employee ID can be linked to only one user ever. Live sync skips device users whose derived `DEV-<uid>` ID is already reserved, instead of creating a duplicate.
 - **People & shifts master data** — departments, designations and locations are managed in **People & shifts**; master rows in use by employees cannot be deleted until reassigned.
@@ -152,7 +152,7 @@ Open **ATTENDANCE → Advanced reports** in the sidebar, directly below **Report
 
   `--location`, `--designation`, `--shift` and `--format table|xlsx|csv|json|pdf` are also supported. `--output` writes bytes to a file; without it, formatted output goes to stdout.
 
-- **Tests** — `docker compose run --rm hrms python -m pytest -q` runs the engine, report-builder, overlay, export-formatter, identity-rule and document-visibility suite (33 tests).
+- **Tests** — `docker compose run --rm hrms python -m pytest -q` runs the engine, report-builder, overlay, export-formatter, identity-rule, document-visibility and export suite (35 tests).
 
 ## Architecture
 

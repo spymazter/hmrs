@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { Download, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Card, DataTable, Field, Modal, Notice, PageHead, SearchableSelect, todayStr } from '../components/ui'
@@ -22,6 +22,7 @@ const EMPTY = {
 export default function Employees() {
   const { has } = useAuth()
   const [rows, setRows] = useState([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -34,14 +35,43 @@ export default function Employees() {
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState(EMPTY)
   const [editing, setEditing] = useState(null)
+  const [exporting, setExporting] = useState(false)
 
-  const load = () => {
-    setLoading(true)
+  const filterParams = () => {
     const params = new URLSearchParams()
     if (search) params.set('search', search)
     if (dept) params.set('department_id', dept)
     if (status) params.set('status', status)
-    api.get(`/employees?${params}`).then((r) => setRows(r.data.items)).catch((e) => setError(errorMessage(e))).finally(() => setLoading(false))
+    return params
+  }
+
+  const load = () => {
+    setLoading(true)
+    api.get(`/employees?${filterParams()}`).then((r) => { setRows(r.data.items); setTotal(r.data.total) }).catch((e) => setError(errorMessage(e))).finally(() => setLoading(false))
+  }
+
+  const downloadEmployees = async () => {
+    setError('')
+    setNotice('')
+    setExporting(true)
+    try {
+      const params = filterParams()
+      params.set('format', 'xlsx')
+      const response = await api.get(`/employees/export?${params}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `employees_${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      setNotice('Employee list exported')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setExporting(false)
+    }
   }
 
   useEffect(() => {
@@ -123,10 +153,21 @@ export default function Employees() {
 
   return (
     <>
-      <PageHead title="Employees" subtitle="Employee master, enrollment IDs and reporting lines" actions={has('employee.create') && <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Add employee</button>} />
+      <PageHead
+        title="Employees"
+        subtitle="Employee master, enrollment IDs and reporting lines"
+        actions={
+          <>
+            <button className="btn btn-outline" onClick={downloadEmployees} disabled={exporting}>
+              <Download size={16} /> {exporting ? 'Exporting…' : 'Export'}
+            </button>
+            {has('employee.create') && <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Add employee</button>}
+          </>
+        }
+      />
       <Notice type="error">{error}</Notice>
       <Notice type="success">{notice}</Notice>
-      <Card title={`All employees (${rows.length})`}>
+      <Card title={`All employees (${total || rows.length})`}>
         <div className="toolbar">
           <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
             <Search size={15} style={{ position: 'absolute', left: 10, top: 10, color: '#94a3b8' }} />
