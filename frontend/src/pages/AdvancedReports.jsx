@@ -6,7 +6,7 @@ import {
 import { Download, FileBarChart, Settings2, RefreshCw } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Card, DataTable, Field, Modal, Notice, PageHead, SearchableSelect, todayStr } from '../components/ui'
+import { Badge, Card, DataTable, Field, Modal, MultiSearchableSelect, Notice, PageHead, SearchableSelect, todayStr } from '../components/ui'
 
 const STATUS_COLORS = {
   P: '#16a34a', present: '#16a34a', HD: '#f59e0b', MIS: '#f59e0b',
@@ -18,13 +18,17 @@ const STATUS_COLORS = {
 const firstOfMonth = () => `${todayStr().slice(0, 7)}-01`
 const DEFAULT_FILTERS = {
   report: 'daily_basic', from_date: firstOfMonth(), to_date: todayStr(),
-  department_id: '', location_id: '', designation_id: '', shift_id: '', employee_code: '',
+  department_id: [], location_id: [], designation_id: [], shift_id: [], employee_code: '',
 }
 
 function paramString(filters) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => {
-    if (value !== '' && value != null) params.set(key === 'report' ? 'report' : key, value)
+    if (Array.isArray(value)) {
+      value.forEach((item) => { if (item !== '' && item != null) params.append(key, item) })
+    } else if (value !== '' && value != null) {
+      params.set(key, value)
+    }
   })
   return params.toString()
 }
@@ -58,7 +62,10 @@ export default function AdvancedReports() {
     return () => clearTimeout(timer)
   }, [filters])
 
-  const set = (key, value) => setFilters((current) => ({ ...current, [key]: value }))
+  const set = (key, value) => setFilters((current) => ({
+    ...current,
+    [key]: typeof value === 'function' ? value(current[key]) : value,
+  }))
 
   const exportFile = async (format) => {
     setBusy(true); setError('')
@@ -144,10 +151,10 @@ export default function AdvancedReports() {
         <div className="field-inline"><label>Employee code</label><input value={filters.employee_code} placeholder="e.g. DEV-111" onChange={(e) => set('employee_code', e.target.value)} style={{ width: 150 }} /></div>
       </div>
       <div className="toolbar">
-        <SearchableSelect value={filters.department_id} onChange={(v) => set('department_id', v)} options={meta.departments.map((d) => ({ value: d.id, label: d.name }))} placeholder="All departments" style={{ width: 190 }} />
-        <SearchableSelect value={filters.location_id} onChange={(v) => set('location_id', v)} options={meta.locations.map((d) => ({ value: d.id, label: d.name }))} placeholder="All locations" style={{ width: 180 }} />
-        <SearchableSelect value={filters.designation_id} onChange={(v) => set('designation_id', v)} options={meta.designations.map((d) => ({ value: d.id, label: d.name }))} placeholder="All designations" style={{ width: 190 }} />
-        <SearchableSelect value={filters.shift_id} onChange={(v) => set('shift_id', v)} options={meta.shifts.map((s) => ({ value: s.id, label: s.name }))} placeholder="All shifts" style={{ width: 170 }} />
+        <MultiSearchableSelect value={filters.department_id} onChange={(v) => set('department_id', v)} options={meta.departments.map((d) => ({ value: d.id, label: d.name }))} placeholder="All departments" style={{ width: 190 }} />
+        <MultiSearchableSelect value={filters.location_id} onChange={(v) => set('location_id', v)} options={meta.locations.map((d) => ({ value: d.id, label: d.name }))} placeholder="All locations" style={{ width: 180 }} />
+        <MultiSearchableSelect value={filters.designation_id} onChange={(v) => set('designation_id', v)} options={meta.designations.map((d) => ({ value: d.id, label: d.name }))} placeholder="All designations" style={{ width: 190 }} />
+        <MultiSearchableSelect value={filters.shift_id} onChange={(v) => set('shift_id', v)} options={meta.shifts.map((s) => ({ value: s.id, label: s.name }))} placeholder="All shifts" style={{ width: 170 }} />
       </div>
 
       <div className="advanced-actions">

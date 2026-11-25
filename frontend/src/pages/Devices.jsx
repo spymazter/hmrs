@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Fingerprint, Pencil, PlugZap, RefreshCw, Server } from 'lucide-react'
+import { Download, Fingerprint, Pencil, PlugZap, RefreshCw, Server } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { Badge, Card, Field, Modal, Notice, PageHead, SearchableSelect } from '../components/ui'
 
@@ -28,6 +28,7 @@ function SyncLog({ job, onClear }) {
       <div className="sync-log-head">
         <span><RefreshCw size={12} style={{ verticalAlign: -2, marginRight: 6 }} /> Sync log · job #{job?.id}</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {job?.full_history && <span className="chip">Full history</span>}
           <span className="sync-log-phase">{status} / {job?.phase || 'queued'}</span>
           <button className="btn btn-sm btn-outline" style={{ background: '#334155', color: '#e2e8f0', borderColor: '#475569' }} onClick={onClear}>Clear</button>
         </span>
@@ -62,6 +63,7 @@ export default function Devices() {
   const [activeJobs, setActiveJobs] = useState({})   // device_id -> job_id
   const [jobs, setJobs] = useState({})               // job_id -> job detail
   const [history, setHistory] = useState([])
+  const [fullConfirm, setFullConfirm] = useState(null)
   const finishedRef = useRef(new Set())              // job ids that already completed
 
   const load = () => {
@@ -104,10 +106,10 @@ export default function Devices() {
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
 
-  const sync = async (device) => {
+  const sync = async (device, fullHistory = false) => {
     setBusy(true); setError(''); setNotice('')
     try {
-      const r = await api.post(`/devices/${device.id}/sync-job`)
+      const r = await api.post(`/devices/${device.id}/sync-job`, null, { params: fullHistory ? { full_history: true } : {} })
       const jobId = r.data.job_id
       if (activeJobs[device.id]) finishedRef.current.delete(activeJobs[device.id])
       setJobs((prev) => ({
@@ -115,7 +117,8 @@ export default function Devices() {
         [jobId]: {
           id: jobId, device_id: device.id, status: 'running', phase: 'queued',
           processed: 0, total: 0, new_punches: 0, new_employees: 0,
-          logs: [{ time: new Date().toISOString().slice(11, 19), phase: 'queued', message: `Starting sync for ${device.ip_address}:${device.port}` }],
+          full_history: fullHistory,
+          logs: [{ time: new Date().toISOString().slice(11, 19), phase: 'queued', message: `${fullHistory ? 'Starting full-history download' : 'Starting sync'} for ${device.ip_address}:${device.port}` }],
         },
       }))
       setActiveJobs((prev) => ({ ...prev, [device.id]: jobId }))
@@ -157,6 +160,7 @@ export default function Devices() {
                 <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                   <button className="btn btn-outline" disabled={busy} onClick={() => test(device)}><PlugZap size={15} /> Test connection</button>
                   <button className="btn btn-primary" disabled={busy || running} onClick={() => sync(device)}><RefreshCw size={15} /> Sync punches now</button>
+                  <button className="btn btn-outline" disabled={busy || running} onClick={() => setFullConfirm(device)}><Download size={15} /> Download all logs</button>
                   <button className="btn btn-outline" onClick={() => setModal({ ...device })}><Pencil size={14} /> Edit IP / settings</button>
                 </div>
                 {job && <SyncLog job={job} onClear={() => {
@@ -174,12 +178,13 @@ export default function Devices() {
         {history.length ? (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Job</th><th>Status</th><th>Phase</th><th>Punches</th><th>New employees</th><th>Started</th><th>Message</th></tr></thead>
+              <thead><tr><th>Job</th><th>Status</th><th>Mode</th><th>Phase</th><th>Punches</th><th>New employees</th><th>Started</th><th>Message</th></tr></thead>
               <tbody>
                 {history.map((h) => (
                   <tr key={h.id}>
                     <td className="mono">#{h.id}</td>
                     <td><Badge status={h.status === 'success' ? 'active' : h.status === 'failed' ? 'inactive' : 'pending'}>{h.status}</Badge></td>
+                    <td>{h.full_history ? 'Full history' : 'Incremental'}</td>
                     <td>{h.phase}</td>
                     <td>{h.new_punches}{h.total ? ` / ${h.total}` : ''}</td>
                     <td>{h.new_employees}</td>
@@ -199,6 +204,7 @@ export default function Devices() {
           <p style={{ margin: 0 }}>Each punch is stored as a raw log. The attendance engine pairs the first and last punch of the day, then applies the employee's shift rules (late grace, half day, overtime, weekly off).</p>
           <p style={{ margin: 0 }}>New device enrolment IDs are automatically created as employees when <strong>auto-create users</strong> is enabled. Map them to your employee master from the Employees page.</p>
           <p style={{ margin: 0 }}>The sync is read-only on the device. A high-water mark skips punches already imported, so repeat syncs show <strong>0 new</strong>.</p>
+          <p style={{ margin: 0 }}><Download size={14} style={{ verticalAlign: -2, color: '#4f46e5' }} /> Use <strong>Download all logs</strong> to scan the device's complete attendance history from the beginning. Every missing punch is imported, duplicates are skipped and the device data is never changed.</p>
         </div>
       </Card>
 
@@ -211,6 +217,18 @@ export default function Devices() {
           <Field label="Mode"><SearchableSelect value={modal.mode} onChange={(v) => setModal({ ...modal, mode: v })} options={MODE_OPTIONS} clearable={false} /></Field>
           <Field label="Enabled"><SearchableSelect value={modal.is_active ? 'yes' : 'no'} onChange={(v) => setModal({ ...modal, is_active: v === 'yes' })} options={YES_NO_OPTIONS} clearable={false} /></Field>
         </div>}
+      </Modal>
+
+      <Modal open={!!fullConfirm} onClose={() => setFullConfirm(null)} title="Download all logs from the device"
+        footer={<>
+          <button className="btn btn-outline" onClick={() => setFullConfirm(null)}>Cancel</button>
+          <button className="btn btn-primary" onClick={() => { const device = fullConfirm; setFullConfirm(null); sync(device, true) }}><Download size={15} /> Download all logs</button>
+        </>}>
+        <div style={{ display: 'grid', gap: 10, lineHeight: 1.7, fontSize: 13, color: '#475569' }}>
+          <p style={{ margin: 0 }}>This will read the <strong>complete attendance log</strong> from <strong className="mono">{fullConfirm?.ip_address}:{fullConfirm?.port}</strong>, from the earliest record on the device, and import every punch missing in HRMS.</p>
+          <p style={{ margin: 0 }}>Punches already imported are skipped, so no duplicates are created. Attendance is recalculated for any dates that receive new punches.</p>
+          <p style={{ margin: 0 }}>The device is only read — no logs, users, settings or time are changed. Large histories may take a few minutes; progress appears in the sync log.</p>
+        </div>
       </Modal>
     </>
   )

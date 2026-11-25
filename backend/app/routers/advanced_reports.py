@@ -7,7 +7,7 @@ Attendance heading) and ``/api/reports/advanced`` for API compatibility.
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -81,18 +81,22 @@ class CompOffIn(BaseModel):
 
 
 def _filters(
-    department_id: Optional[int],
-    location_id: Optional[int],
-    designation_id: Optional[int],
-    shift_id: Optional[int],
+    department_id: list[int] | None,
+    location_id: list[int] | None,
+    designation_id: list[int] | None,
+    shift_id: list[int] | None,
     employee_code: Optional[str],
 ) -> EngineFilters:
     return EngineFilters(
-        department_id=department_id,
-        location_id=location_id,
-        designation_id=designation_id,
-        shift_id=shift_id,
+        department_id=department_id[0] if department_id else None,
+        location_id=location_id[0] if location_id else None,
+        designation_id=designation_id[0] if designation_id else None,
+        shift_id=shift_id[0] if shift_id else None,
         employee_code=employee_code or None,
+        department_ids=department_id or [],
+        location_ids=location_id or [],
+        designation_ids=designation_id or [],
+        shift_ids=shift_id or [],
     )
 
 
@@ -123,10 +127,10 @@ def advanced_report(
     report: str = "daily_basic",
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
-    department_id: Optional[int] = None,
-    location_id: Optional[int] = None,
-    designation_id: Optional[int] = None,
-    shift_id: Optional[int] = None,
+    department_id: Optional[list[int]] = Query(None),
+    location_id: Optional[list[int]] = Query(None),
+    designation_id: Optional[list[int]] = Query(None),
+    shift_id: Optional[list[int]] = Query(None),
     employee_code: Optional[str] = None,
     db: Session = Depends(get_db),
     _=Depends(require("report.view")),
@@ -148,10 +152,10 @@ def advanced_export(
     format: str = "xlsx",
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
-    department_id: Optional[int] = None,
-    location_id: Optional[int] = None,
-    designation_id: Optional[int] = None,
-    shift_id: Optional[int] = None,
+    department_id: Optional[list[int]] = Query(None),
+    location_id: Optional[list[int]] = Query(None),
+    designation_id: Optional[list[int]] = Query(None),
+    shift_id: Optional[list[int]] = Query(None),
     employee_code: Optional[str] = None,
     db: Session = Depends(get_db),
     _=Depends(require("report.export", "report.view")),

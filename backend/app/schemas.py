@@ -376,6 +376,7 @@ class SyncJobOut(ORMBase):
     processed: int = 0
     new_punches: int = 0
     new_employees: int = 0
+    full_history: bool = False
     message: Optional[str] = None
     logs: list[dict] = []
     started_at: datetime

@@ -269,6 +269,7 @@ class DeviceSyncJob(Base):
     processed = Column(Integer, default=0)
     new_punches = Column(Integer, default=0)
     new_employees = Column(Integer, default=0)
+    full_history = Column(Boolean, default=False)
     message = Column(Text)
     logs = Column(JSON, default=list)
     started_at = Column(DateTime, default=datetime.now)

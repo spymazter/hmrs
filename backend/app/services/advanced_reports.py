@@ -103,18 +103,24 @@ def _scoped_employees(db: Session, filters: EngineFilters) -> list[Employee]:
         query = query.filter(Employee.id.in_(filters.employee_ids))
     if filters.employee_code:
         query = query.filter(Employee.employee_code.ilike(f"%{filters.employee_code}%"))
-    if filters.department_id:
-        query = query.filter(Employee.department_id == filters.department_id)
-    if filters.location_id:
-        query = query.filter(Employee.location_id == filters.location_id)
-    if filters.designation_id:
-        query = query.filter(Employee.designation_id == filters.designation_id)
-    if filters.shift_id:
+
+    def selected(ids, single):
+        return list(ids) if ids else ([single] if single else [])
+
+    for column, values in (
+        (Employee.department_id, selected(filters.department_ids, filters.department_id)),
+        (Employee.location_id, selected(filters.location_ids, filters.location_id)),
+        (Employee.designation_id, selected(filters.designation_ids, filters.designation_id)),
+    ):
+        if values:
+            query = query.filter(column.in_(values))
+    shift_values = selected(filters.shift_ids, filters.shift_id)
+    if shift_values:
         group_ids = [
             group.id for group in db.query(ShiftGroup).all()
-            if any(shift.id == filters.shift_id for shift in group.shifts)
+            if any(shift.id in shift_values for shift in group.shifts)
         ]
-        condition = Employee.shift_id == filters.shift_id
+        condition = Employee.shift_id.in_(shift_values)
         if group_ids:
             condition = or_(condition, Employee.shift_group_id.in_(group_ids))
         query = query.filter(condition)
@@ -459,6 +465,29 @@ def _shift_deviation(ctx: ReportContext):
 
 # ---------------------------------------------------------------------------
 # D. Audit, leave & raw logs
+def _apply_report_filters(query, filters: dict, include_shift: bool = True):
+    """Apply scalar and repeated (multi-select) filters to an employee-joined query."""
+
+    def selected(plural: str, singular: str) -> list:
+        values = filters.get(plural) or []
+        return list(values) if values else ([filters[singular]] if filters.get(singular) else [])
+
+    for column, values in (
+        (Employee.department_id, selected("department_ids", "department_id")),
+        (Employee.location_id, selected("location_ids", "location_id")),
+        (Employee.designation_id, selected("designation_ids", "designation_id")),
+    ):
+        if values:
+            query = query.filter(column.in_(values))
+    if include_shift:
+        shift_values = selected("shift_ids", "shift_id")
+        if shift_values:
+            query = query.filter(Employee.shift_id.in_(shift_values))
+    if filters.get("employee_code"):
+        query = query.filter(Employee.employee_code.ilike(f"%{filters['employee_code']}%"))
+    return query
+
+
 # ---------------------------------------------------------------------------
 def _raw_logs(ctx: ReportContext):
     query = ctx.db.query(PunchLog).outerjoin(Employee, PunchLog.employee_id == Employee.id)
@@ -466,17 +495,7 @@ def _raw_logs(ctx: ReportContext):
         PunchLog.punch_time >= datetime.combine(ctx.start - timedelta(days=1), _time.min),
         PunchLog.punch_time < datetime.combine(ctx.end + timedelta(days=2), _time.min),
     )
-    filters = ctx.filters
-    if filters.get("department_id"):
-        query = query.filter(Employee.department_id == filters["department_id"])
-    if filters.get("location_id"):
-        query = query.filter(Employee.location_id == filters["location_id"])
-    if filters.get("designation_id"):
-        query = query.filter(Employee.designation_id == filters["designation_id"])
-    if filters.get("shift_id"):
-        query = query.filter(Employee.shift_id == filters["shift_id"])
-    if filters.get("employee_code"):
-        query = query.filter(Employee.employee_code.ilike(f"%{filters['employee_code']}%"))
+    query = _apply_report_filters(query, ctx.filters)
     rows = []
     for punch in query.order_by(PunchLog.punch_time, Employee.employee_code).all():
         direction = "OUT" if (punch.punch_type or "").lower() in ("out", "checkout", "check_out", "break_out") else "IN"
@@ -501,11 +520,7 @@ def _regularization_audit(ctx: ReportContext):
     query = query.filter(
         Regularization.record_date >= ctx.start, Regularization.record_date <= ctx.end
     )
-    filters = ctx.filters
-    if filters.get("department_id"):
-        query = query.filter(Employee.department_id == filters["department_id"])
-    if filters.get("employee_code"):
-        query = query.filter(Employee.employee_code.ilike(f"%{filters['employee_code']}%"))
+    query = _apply_report_filters(query, ctx.filters, include_shift=False)
     rows = []
     users = {u.id: u.full_name or u.username for u in ctx.db.query(User).all()}
     for item in query.order_by(Regularization.record_date, Regularization.id).all():
@@ -767,6 +782,10 @@ def build_report(
         "designation_id": filters.designation_id,
         "shift_id": filters.shift_id,
         "employee_code": filters.employee_code,
+        "department_ids": filters.department_ids,
+        "location_ids": filters.location_ids,
+        "designation_ids": filters.designation_ids,
+        "shift_ids": filters.shift_ids,
     }
     ctx = ReportContext(
         db=db, start=start, end=end, calculations=calculations,
@@ -794,8 +813,9 @@ def build_report(
         ("designation_id", "Designation"), ("shift_id", "Shift"),
         ("employee_code", "Employee code"),
     ):
-        if filter_values.get(key):
-            params.append(f"{label}: {filter_values[key]}")
+        value = filter_values.get(f"{key}s") or filter_values.get(key)
+        if value:
+            params.append(f"{label}: {', '.join(str(v) for v in value) if isinstance(value, list) else value}")
 
     return {
         "id": report_id,

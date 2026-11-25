@@ -53,20 +53,23 @@ def test_device(
 
 
 @router.post("/{device_id}/sync")
-def sync(device_id: int, db: Session = Depends(get_db), _=Depends(require("device.manage"))):
+def sync(device_id: int, full_history: bool = False, db: Session = Depends(get_db), _=Depends(require("device.manage"))):
     device = db.query(Device).get(device_id)
     if not device:
         raise HTTPException(404, "Device not found")
-    return sync_device(db, device)
+    return sync_device(db, device, full_history=full_history)
 
 
 @router.post("/{device_id}/sync-job", response_model=dict, status_code=202)
-def sync_job(device_id: int, db: Session = Depends(get_db), _=Depends(require("device.manage"))):
+def sync_job(device_id: int, full_history: bool = False, db: Session = Depends(get_db), _=Depends(require("device.manage"))):
     """Start a sync in the background and return a job id for progress polling."""
     device = db.query(Device).get(device_id)
     if not device:
         raise HTTPException(404, "Device not found")
-    return {"job_id": start_sync_job(device_id), "message": "Sync started"}
+    return {
+        "job_id": start_sync_job(device_id, full_history=full_history),
+        "message": "Full history download started" if full_history else "Sync started",
+    }
 
 
 @router.get("/sync-jobs", response_model=list[SyncJobOut])

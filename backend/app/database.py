@@ -64,6 +64,9 @@ _COLUMN_MIGRATIONS = {
         "serial_number": "VARCHAR(100)",
         "location_id": "INTEGER",
     },
+    "device_sync_jobs": {
+        "full_history": "BOOLEAN DEFAULT 0",
+    },
 }
 
 

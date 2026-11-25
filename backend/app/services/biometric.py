@@ -195,8 +195,14 @@ def sync_device(
     db: Session,
     device: Device,
     progress: Optional[Callable[[str, str, dict], None]] = None,
+    full_history: bool = False,
 ) -> dict:
-    """Pull users and punches from the configured device and persist them."""
+    """Pull users and punches from the configured device and persist them.
+
+    With ``full_history=True`` the sync high-water mark is ignored and every
+    punch held by the device is scanned. Records already stored locally are
+    still skipped by the dedupe key, and the device itself is never modified.
+    """
 
     def report(phase: str, message: str, **extra):
         payload = {
@@ -245,7 +251,8 @@ def sync_device(
         return {"success": False, "mode": "live", "message": str(exc)}
     report(
         "fetched",
-        f"Fetched {len(users)} users and {len(punches)} punch records from device",
+        f"Fetched {len(users)} users and {len(punches)} punch records from device"
+        + (" — scanning the full history" if full_history else ""),
         total=len(punches),
         users=len(users),
     )
@@ -302,7 +309,10 @@ def sync_device(
         if state is None:
             state = DeviceSyncState(device_id=device.id)
             db.add(state)
-        since = state.last_punch_time
+        # A normal sync starts at the high-water mark. A full-history download
+        # deliberately ignores it so every log on the device is scanned; the
+        # dedupe key below still prevents importing the same punch twice.
+        since = None if full_history else state.last_punch_time
 
         # pyzk reads the full attendance log from the device, but a high-water
         # mark keeps repeat syncs from reprocessing every old punch.
@@ -316,9 +326,15 @@ def sync_device(
 
         added = 0
         affected_dates: set[date] = set()
+        if full_history:
+            scan_label = "all punches from the beginning of the device log"
+        elif since:
+            scan_label = f"punches after {since.isoformat(timespec='seconds')}"
+        else:
+            scan_label = "punches from the beginning"
         report(
             "punches",
-            f"Scanning punches after {since.isoformat(timespec='seconds') if since else 'beginning'}",
+            f"Scanning {scan_label}",
             processed=0,
             total=len(punches),
             new_punches=0,
@@ -387,7 +403,11 @@ def sync_device(
         )
         count = recompute_records(db, min(affected_dates), max(affected_dates))
         report("attendance", f"Recomputed {count} daily attendance records")
-    message = f"Synced {added} punches, {new_users} new employees"
+    message = (
+        f"Full history: imported {added} missing punches, {new_users} new employees"
+        if full_history
+        else f"Synced {added} punches, {new_users} new employees"
+    )
     report(
         "done",
         message,
@@ -399,6 +419,7 @@ def sync_device(
     return {
         "success": True,
         "mode": "live",
+        "full_history": full_history,
         "new_punches": added,
         "new_employees": new_users,
         "last_punch_at": latest_punch.isoformat() if latest_punch else None,

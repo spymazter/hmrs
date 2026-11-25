@@ -37,7 +37,7 @@ def _write_job(job_id: int, payload: dict | None = None, status: str | None = No
         db.close()
 
 
-def _run_job(job_id: int, device_id: int):
+def _run_job(job_id: int, device_id: int, full_history: bool = False):
     db = SessionLocal()
     try:
         device = db.query(Device).filter(Device.id == device_id).first()
@@ -48,7 +48,7 @@ def _run_job(job_id: int, device_id: int):
         def progress(payload: dict):
             _write_job(job_id, payload)
 
-        result = sync_device(db, device, progress=progress)
+        result = sync_device(db, device, progress=progress, full_history=full_history)
         success = bool(result.get("success"))
         # On failure sync_device() already logged the detailed error; only add
         # a final line for successful runs so the log stays readable.
@@ -78,7 +78,7 @@ def _run_job(job_id: int, device_id: int):
         db.close()
 
 
-def start_sync_job(device_id: int) -> int:
+def start_sync_job(device_id: int, full_history: bool = False) -> int:
     db = SessionLocal()
     try:
         job = DeviceSyncJob(
@@ -89,9 +89,10 @@ def start_sync_job(device_id: int) -> int:
             processed=0,
             new_punches=0,
             new_employees=0,
+            full_history=full_history,
             logs=[{
                 "phase": "queued",
-                "message": "Sync job queued",
+                "message": "Full history download queued" if full_history else "Sync job queued",
                 "time": datetime.now().isoformat(timespec="seconds"),
             }],
         )
@@ -101,5 +102,5 @@ def start_sync_job(device_id: int) -> int:
         job_id = job.id
     finally:
         db.close()
-    threading.Thread(target=_run_job, args=(job_id, device_id), daemon=True).start()
+    threading.Thread(target=_run_job, args=(job_id, device_id, full_history), daemon=True).start()
     return job_id

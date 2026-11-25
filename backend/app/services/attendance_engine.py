@@ -197,6 +197,12 @@ class EngineFilters:
     location_id: int | None = None
     designation_id: int | None = None
     shift_id: int | None = None
+    # Repeated query parameters from the advanced reports UI. Blank means
+    # "all", so only non-empty lists narrow the employee set.
+    department_ids: list[int] | None = None
+    location_ids: list[int] | None = None
+    designation_ids: list[int] | None = None
+    shift_ids: list[int] | None = None
 
 
 class AttendanceData:
@@ -242,18 +248,26 @@ class AttendanceData:
             query = query.filter(Employee.id.in_(filters.employee_ids))
         if filters.employee_code:
             query = query.filter(Employee.employee_code.ilike(f"%{filters.employee_code}%"))
-        if filters.department_id:
-            query = query.filter(Employee.department_id == filters.department_id)
-        if filters.location_id:
-            query = query.filter(Employee.location_id == filters.location_id)
-        if filters.designation_id:
-            query = query.filter(Employee.designation_id == filters.designation_id)
-        if filters.shift_id:
+
+        def selected(ids: list[int] | None, single: int | None) -> list[int]:
+            # Lists come from multi-select dropdowns; the scalar form is kept
+            # for older API clients and internal callers.
+            return list(ids) if ids else ([single] if single else [])
+
+        for column, values in (
+            (Employee.department_id, selected(filters.department_ids, filters.department_id)),
+            (Employee.location_id, selected(filters.location_ids, filters.location_id)),
+            (Employee.designation_id, selected(filters.designation_ids, filters.designation_id)),
+        ):
+            if values:
+                query = query.filter(column.in_(values))
+        shift_values = selected(filters.shift_ids, filters.shift_id)
+        if shift_values:
             group_ids = [
                 group_id for group_id, shifts in self.group_shifts.items()
-                if any(shift.id == filters.shift_id for shift in shifts)
+                if any(shift.id in shift_values for shift in shifts)
             ]
-            condition = Employee.shift_id == filters.shift_id
+            condition = Employee.shift_id.in_(shift_values)
             if group_ids:
                 condition = or_(condition, Employee.shift_group_id.in_(group_ids))
             query = query.filter(condition)

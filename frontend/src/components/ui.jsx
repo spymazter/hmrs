@@ -115,6 +115,86 @@ export function SearchableSelect({
   )
 }
 
+export function MultiSearchableSelect({
+  value = [], onChange, options = [], placeholder = 'Select…', style,
+  className = '', searchPlaceholder = 'Search…',
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef(null)
+  const inputRef = useRef(null)
+
+  const items = useMemo(
+    () => options.map((opt) => typeof opt === 'object' ? opt : { value: opt, label: String(opt) }),
+    [options],
+  )
+  const chosen = (value || []).map(String)
+  const selected = items.filter((opt) => chosen.includes(String(opt.value)))
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return items
+    return items.filter((opt) =>
+      String(opt.label).toLowerCase().includes(q) || String(opt.value).toLowerCase().includes(q))
+  }, [items, query])
+
+  useEffect(() => {
+    if (!open) return undefined
+    rootRef.current?.querySelector('.search-select-menu')?.scrollTo(0, 0)
+    inputRef.current?.focus()
+    const onOutside = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [open])
+
+  const toggle = (opt) => {
+    const key = String(opt.value)
+    onChange((current = []) => {
+      const keys = (current || []).map(String)
+      return keys.includes(key) ? keys.filter((item) => item !== key) : [...keys, key]
+    })
+  }
+
+  const label = !selected.length
+    ? placeholder
+    : selected.length === 1 ? selected[0].label : `${selected.length} selected`
+
+  return (
+    <div ref={rootRef} className={`search-select ${className}`} style={style}>
+      <button type="button" className="search-select-trigger" onClick={() => setOpen((v) => !v)}>
+        <span className={selected.length ? '' : 'muted'}>{label}</span>
+        <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div className="search-select-menu">
+          <div className="search-select-search">
+            <Search size={14} />
+            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchPlaceholder} />
+          </div>
+          {chosen.length > 0 && (
+            <button type="button" className="search-select-option" onClick={() => onChange([])}>
+              <span className="muted">Clear all</span>
+            </button>
+          )}
+          <div className="search-select-list">
+            {filtered.map((opt) => {
+              const active = chosen.includes(String(opt.value))
+              return (
+                <button type="button" key={opt.value} className={`search-select-option ${active ? 'selected' : ''}`} onClick={() => toggle(opt)}>
+                  <span>{opt.label}</span>
+                  {active && <Check size={13} />}
+                </button>
+              )
+            })}
+            {!filtered.length && <div className="search-select-empty">No matches</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function DataTable({ columns, rows, loading, emptyText = 'No records found', sort, onSort }) {
   if (loading) return <div className="loader">Loading…</div>
   if (!rows || rows.length === 0) {
