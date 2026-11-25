@@ -54,6 +54,14 @@ def to_csv_bytes(payload: dict) -> bytes:
     writer.writeheader()
     for row in payload.get("rows", []):
         writer.writerow({label: _csv_value(row.get(key)) for key, label in columns})
+
+    legend = payload.get("legend") or {}
+    if legend and columns:
+        first, second = columns[0][1], columns[1][1] if len(columns) > 1 else columns[0][1]
+        writer.writerow({})
+        writer.writerow({first: "LEGEND"})
+        for code, meaning in legend.items():
+            writer.writerow({first: code, second: meaning})
     return output.getvalue().encode("utf-8-sig")
 
 
@@ -122,6 +130,19 @@ def _add_totals_row(worksheet, columns: list[tuple[str, str]], rows: list[dict])
         cell.fill = PatternFill("solid", fgColor="E2E8F0")
 
 
+def _add_legend(worksheet, legend: dict) -> None:
+    if not legend:
+        return
+    row = worksheet.max_row + 1
+    worksheet.cell(row=row, column=1, value="LEGEND").font = Font(
+        bold=True, color="1E293B"
+    )
+    for code, meaning in legend.items():
+        row += 1
+        worksheet.cell(row=row, column=1, value=code)
+        worksheet.cell(row=row, column=2, value=meaning)
+
+
 def to_xlsx_bytes(payload: dict) -> bytes:
     columns = _columns(payload)
     rows = payload.get("rows", [])
@@ -141,6 +162,7 @@ def to_xlsx_bytes(payload: dict) -> bytes:
         status_column=status_index,
     )
     _add_totals_row(sheet, columns, rows)
+    _add_legend(sheet, payload.get("legend"))
 
     summary = workbook.create_sheet("Summary")
     summary_rows = []
@@ -286,6 +308,14 @@ def to_pdf_bytes(payload: dict) -> bytes:
         story.append(table)
     else:
         story.append(Paragraph("No rows to display.", small_style))
+
+    legend = payload.get("legend") or {}
+    if legend:
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(
+            "Legend: " + "; ".join(f"{code} = {meaning}" for code, meaning in legend.items()),
+            small_style,
+        ))
 
     story.append(Spacer(1, 12))
     signature = Table(

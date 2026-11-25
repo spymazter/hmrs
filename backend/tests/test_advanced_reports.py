@@ -61,6 +61,12 @@ def test_muster_roll_has_day_columns_and_codes():
         assert "day_05" in keys and "day_11" in keys
         ash = next(r for r in payload["rows"] if r["employee_code"] == "SMP001")
         assert ash["day_05"] == "P"
+        legend = payload["legend"]
+        assert legend["P"] == "Present - full day"
+        assert "Half day" in legend["HD"]
+        assert "Missed punch" in legend["MIS"]
+        assert legend["A"] == "Absent"
+        assert legend["WO"] == "Weekly off"
     finally:
         db.close()
 
@@ -152,6 +158,27 @@ def test_all_export_formats():
 
         pdf_bytes = to_pdf_bytes(payload)
         assert pdf_bytes.startswith(b"%PDF")
+    finally:
+        db.close()
+
+
+def test_muster_roll_legend_appears_in_exports():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        payload = _payload(db, "muster_roll")
+
+        csv_text = to_csv_bytes(payload).decode("utf-8-sig")
+        assert "LEGEND" in csv_text
+        assert "Missed punch" in csv_text
+
+        workbook = load_workbook(BytesIO(to_xlsx_bytes(payload)))
+        values = [cell.value for row in workbook["Report"].iter_rows() for cell in row]
+        assert "LEGEND" in values
+        assert "Weekly off" in values
+
+        assert to_json_bytes(payload).find(b'"legend"') >= 0
+        assert to_pdf_bytes(payload).startswith(b"%PDF")
     finally:
         db.close()
 

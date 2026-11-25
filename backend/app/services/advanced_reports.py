@@ -26,6 +26,23 @@ from app.utils import round2
 
 COLUMNS = list[tuple[str, str]]
 
+# Shown below the muster roll table and in all exported formats.
+MUSTER_STATUS_LEGEND = {
+    "P": "Present - full day",
+    "HD": "Half day",
+    "MIS": "Missed punch - single or incomplete punch pair",
+    "A": "Absent",
+    "WO": "Weekly off",
+    "HL": "Holiday",
+    "CL": "Casual leave",
+    "SL": "Sick leave",
+    "EL": "Earned leave",
+    "LWP": "Leave without pay",
+    "OD": "On duty",
+    "CO": "Compensatory off",
+    "—": "Before joining date / no record",
+}
+
 
 @dataclass
 class ReportContext:
@@ -55,6 +72,7 @@ class ReportDefinition:
     columns: COLUMNS
     builder: Callable[[ReportContext], tuple[list[dict], dict | None]]
     notes: str = ""
+    legend: dict[str, str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -629,6 +647,7 @@ REPORTS: list[ReportDefinition] = [
         "muster_roll", "Muster Roll", "Monthly & payroll",
         "Form-compliant matrix with a daily status code per calendar day.",
         [], _muster_roll, "First 31 days of the selected range are shown in the matrix.",
+        MUSTER_STATUS_LEGEND,
     ),
     ReportDefinition(
         "ot_compoff", "OT & Comp-Off Register", "Monthly & payroll",
@@ -789,6 +808,7 @@ def build_report(
         "end": end.isoformat(),
         "params": params,
         "columns": [{"key": key, "label": label} for key, label in columns],
+        "legend": definition.legend,
         "rows": rows,
         "summary": summary,
         "charts": _charts(ctx),

@@ -214,6 +214,14 @@ export default function AdvancedReports() {
           <Card title={`${data.title} · ${data.period_label}`}
             subtitle={`${data.rows.length} rows${data.rows.length > 300 ? ' · showing first 300 (export for all)' : ''}`}>
             <DataTable rows={rows} columns={columns} emptyText="No rows match this filter" />
+            {data.legend && (
+              <div className="report-legend">
+                <span className="strong">Legend:</span>
+                {Object.entries(data.legend).map(([code, meaning]) => (
+                  <span className="chip" key={code}><strong>{code}</strong> {meaning}</span>
+                ))}
+              </div>
+            )}
           </Card>
         </>
       )}
