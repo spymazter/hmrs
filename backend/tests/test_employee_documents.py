@@ -125,6 +125,29 @@ def test_employee_and_group_inherited_hr_cannot_upload_or_view_hr_only_documents
         db.close()
 
 
+def test_upload_rejects_files_over_one_mb(monkeypatch, tmp_path):
+    monkeypatch.setattr(documents.settings, "DOCUMENT_DIR", str(tmp_path))
+    _, Session = sample_db()
+    db = Session()
+    try:
+        admin = _user(db, "admin-size", _role(db, "Admin", ALL_CODES))
+        employee = _employee(db, "DOCDOC005", "8805", "SizeCheck")
+
+        with pytest.raises(documents.DocumentError, match="1 MB"):
+            documents.save_document(
+                db, admin, employee.id, "appointment_order", "too-big.pdf",
+                "application/pdf", b"x" * (documents.MAX_BYTES + 1),
+            )
+
+        accepted = documents.save_document(
+            db, admin, employee.id, "appointment_order", "exact-mb.pdf",
+            "application/pdf", b"x" * documents.MAX_BYTES,
+        )
+        assert accepted.size_bytes == documents.MAX_BYTES
+    finally:
+        db.close()
+
+
 def test_admin_can_upload_and_delete_all_documents(monkeypatch, tmp_path):
     monkeypatch.setattr(documents.settings, "DOCUMENT_DIR", str(tmp_path))
     _, Session = sample_db()

@@ -103,6 +103,15 @@ button, input, select, textarea { font: inherit; }
 .card-sub { font-size: 12px; color: var(--slate-500); margin: 3px 0 0; }
 .card-body { padding: 18px; }
 
+.doc-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.doc-tile { display: flex; flex-direction: column; overflow: hidden; background: #fff; border: 1px solid var(--slate-200); border-radius: var(--radius); box-shadow: var(--shadow); transition: .15s; }
+.doc-tile:hover { border-color: var(--indigo); transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.doc-tile-preview { height: 104px; display: flex; align-items: center; justify-content: center; border: 0; cursor: pointer; color: var(--indigo); background: linear-gradient(135deg, #eef2ff, #f8fafc); }
+.doc-tile-body { display: flex; flex: 1; flex-direction: column; gap: 6px; padding: 12px 13px 8px; }
+.doc-tile-name { font-size: 12.5px; font-weight: 700; color: var(--slate-900); overflow-wrap: anywhere; }
+.doc-tile-meta { font-size: 11px; color: var(--slate-500); }
+.doc-tile-actions { display: flex; gap: 6px; padding: 0 13px 13px; }
+
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   border: 1px solid transparent; border-radius: 8px; padding: 9px 14px;

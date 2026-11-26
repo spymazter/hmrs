@@ -41,7 +41,7 @@ const NAV = [
 const TITLES = {
   '/': ['Dashboard', 'Today at a glance'],
   '/employees': ['Employees', 'Manage employee master and device enrollment'],
-  '/documents': ['Employee documents', 'HR documents and employee-uploaded PAN / Aadhaar KYC files'],
+  '/documents': ['Employee documents', 'Your KYC uploads and HR documents, all in one place'],
   '/departments': ['Departments', 'Maintain departments and their heads'],
   '/designations': ['Designations', 'Maintain job titles grouped by department'],
   '/locations': ['Locations', 'Workplaces and branches used by advanced reports'],

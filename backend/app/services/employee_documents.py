@@ -25,7 +25,7 @@ CONFIDENTIAL = {"antecedent_verification"}
 ALLOWED_EXTENSIONS = {
     ".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png",
 }
-MAX_BYTES = 20 * 1024 * 1024
+MAX_BYTES = 1024 * 1024  # 1 MB; oversized images are compressed in the browser
 
 
 class DocumentError(ValueError):
@@ -128,7 +128,7 @@ def save_document(db: Session, user: User, employee_id: int, category: str,
     if extension not in ALLOWED_EXTENSIONS:
         raise DocumentError("Only PDF, Word and image files are allowed")
     if len(content) > MAX_BYTES:
-        raise DocumentError("File is larger than the 20 MB limit")
+        raise DocumentError("File is larger than the 1 MB limit")
     if db.get(Employee, employee_id) is None:
         raise DocumentError("Employee not found", 404)
 

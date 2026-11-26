@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { DOCUMENT_SIZE_MB, prepareDocument } from '../utils/documentUpload'
 import {
   Badge, Card, DataTable, Field, Modal, Notice, PageHead, SearchableSelect, Stat,
   fmtTime, todayStr,
@@ -140,10 +141,11 @@ export default function MyPortal() {
     }
     setError(''); setNotice(''); setUploading(true)
     try {
+      const prepared = await prepareDocument(kycFile)
       const body = new FormData()
       body.append('employee_id', String(profile.id))
       body.append('category', kycCategory)
-      body.append('file', kycFile)
+      body.append('file', prepared)
       const response = await api.post('/employee-documents', body)
       setKycFile(null)
       if (kycFileRef.current) kycFileRef.current.value = ''
@@ -273,6 +275,9 @@ export default function MyPortal() {
                 <button className="btn btn-primary" disabled={!profile || !kycFile || uploading} onClick={uploadKyc}>
                   <Upload size={15} /> {uploading ? 'Uploading…' : 'Upload document'}
                 </button>
+                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  Maximum {DOCUMENT_SIZE_MB} MB per file. Oversized images are compressed automatically; compress PDF files before uploading.
+                </p>
               </div>
             </div>
             <DataTable rows={kycDocuments} emptyText="No KYC documents uploaded yet" columns={[

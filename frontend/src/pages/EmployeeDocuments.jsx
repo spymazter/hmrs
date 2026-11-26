@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileText, Trash2, Upload } from 'lucide-react'
+import { Download, Eye, FileImage, FileText, LayoutGrid, List, Trash2, Upload } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { DOCUMENT_SIZE_MB, prepareDocument } from '../utils/documentUpload'
 import {
   Badge, Card, DataTable, Field, Modal, Notice, PageHead, SearchableSelect, fmtDate,
 } from '../components/ui'
 
-const CATEGORIES = [
+const ALL_CATEGORIES = [
   { value: 'appointment_order', label: 'Appointment order' },
   { value: 'medical_fitness', label: 'Medical fitness certificate' },
   { value: 'antecedent_verification', label: 'Antecedent verification form (HR only)' },
@@ -15,24 +16,43 @@ const CATEGORIES = [
   { value: 'nominee_pan', label: 'Nominee PAN card' },
   { value: 'nominee_aadhaar', label: 'Nominee Aadhaar card' },
 ]
+const KYC_VALUES = ['employee_pan', 'employee_aadhaar', 'nominee_pan', 'nominee_aadhaar']
+const EMPLOYEE_CATEGORIES = ALL_CATEGORIES.filter((c) => KYC_VALUES.includes(c.value))
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
 
-const EMPTY = { employee_id: '', category: 'appointment_order' }
+function isImage(row) {
+  const ext = (row?.original_filename || '').split('.').pop()?.toLowerCase()
+  return IMAGE_EXTENSIONS.includes(ext) || String(row?.content_type || '').startsWith('image/')
+}
+
+function isPdf(row) {
+  const ext = (row?.original_filename || '').split('.').pop()?.toLowerCase()
+  return ext === 'pdf' || row?.content_type === 'application/pdf'
+}
 
 export default function EmployeeDocuments() {
   const { user, has } = useAuth()
   const isHR = (user?.roles || []).some((role) =>
     ['HR Manager', 'Admin'].includes(role?.name)) || user?.username === 'admin'
-  const canUpload = isHR && has('document.manage')
+  const canManage = isHR && has('document.manage')
+  const canSelfUpload = !isHR && Boolean(user?.employee_id)
+    && has('document.view') && has('self.portal')
+  const canUpload = canManage || canSelfUpload
 
   const [rows, setRows] = useState([])
   const [employees, setEmployees] = useState([])
+  const [selfEmployee, setSelfEmployee] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
+  const [view, setView] = useState('tiles')
   const [modal, setModal] = useState(false)
-  const [form, setForm] = useState(EMPTY)
+  const [form, setForm] = useState({ employee_id: '', category: 'employee_pan' })
+  const [preview, setPreview] = useState(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
   const fileRef = useRef(null)
 
   const load = async () => {
@@ -53,11 +73,37 @@ export default function EmployeeDocuments() {
   useEffect(() => { load() }, [category])
 
   useEffect(() => {
-    if (!isHR) return
-    api.get('/employees?limit=500')
-      .then((r) => setEmployees(r.data.items || []))
-      .catch(() => {})
-  }, [isHR])
+    if (isHR) {
+      api.get('/employees?limit=500')
+        .then((r) => setEmployees(r.data.items || []))
+        .catch(() => {})
+    } else if (user?.employee_id) {
+      api.get('/employees/me')
+        .then((r) => setSelfEmployee(r.data))
+        .catch(() => {})
+    }
+  }, [isHR, user?.employee_id])
+
+  useEffect(() => {
+    if (!preview) return undefined
+    let active = true
+    setPreviewUrl('')
+    setPreviewLoading(true)
+    api.get(`/employee-documents/${preview.id}/download`, { responseType: 'blob' })
+      .then((response) => {
+        if (active) {
+          const blob = new Blob([response.data], { type: response.data.type || preview.content_type || '' })
+          setPreviewUrl(URL.createObjectURL(blob))
+        }
+      })
+      .catch((err) => {
+        if (active) { setError(errorMessage(err)); setPreview(null) }
+      })
+      .finally(() => { if (active) setPreviewLoading(false) })
+    return () => { active = false }
+  }, [preview?.id])
+
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -68,6 +114,7 @@ export default function EmployeeDocuments() {
   }, [rows, search])
 
   const download = async (row) => {
+    if (!row) return
     setError('')
     try {
       const response = await api.get(`/employee-documents/${row.id}/download`, { responseType: 'blob' })
@@ -84,25 +131,57 @@ export default function EmployeeDocuments() {
     }
   }
 
+  const closePreview = () => {
+    setPreview(null)
+    setPreviewUrl('')
+  }
+
+  const openPreview = (row) => {
+    setError('')
+    setPreview(row)
+  }
+
+  const canDelete = (row) => canManage || (
+    canSelfUpload
+    && row.employee_id === user?.employee_id
+    && KYC_VALUES.includes(row.category)
+    && row.uploaded_by === user?.id
+  )
+
+  const openUpload = () => {
+    setForm({
+      employee_id: canManage ? '' : String(user?.employee_id || ''),
+      category: canManage ? 'appointment_order' : 'employee_pan',
+    })
+    setModal(true)
+  }
+
   const upload = async (event) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    if (!form.employee_id || !form.category) {
+    const employeeId = canManage ? form.employee_id : user?.employee_id
+    if (!employeeId || !form.category) {
       setError('Select an employee and document type first')
       return
     }
     setError('')
     setNotice('')
+    let prepared
+    try {
+      prepared = await prepareDocument(file)
+    } catch (err) {
+      setError(err.message || errorMessage(err))
+      return
+    }
     const body = new FormData()
-    body.append('employee_id', String(form.employee_id))
+    body.append('employee_id', String(employeeId))
     body.append('category', form.category)
-    body.append('file', file)
+    body.append('file', prepared)
     try {
       const response = await api.post('/employee-documents', body)
-      setNotice(`${response.data.category_label} uploaded for ${response.data.employee_code}`)
+      setNotice(`${response.data.category_label} uploaded`)
       setModal(false)
-      setForm(EMPTY)
       load()
     } catch (err) {
       setError(errorMessage(err))
@@ -115,6 +194,7 @@ export default function EmployeeDocuments() {
     try {
       await api.delete(`/employee-documents/${row.id}`)
       setNotice('Document removed')
+      if (preview?.id === row.id) closePreview()
       load()
     } catch (err) {
       setError(errorMessage(err))
@@ -154,20 +234,25 @@ export default function EmployeeDocuments() {
       className: 'text-right',
       render: (row) => (
         <span style={{ display: 'inline-flex', gap: 6 }}>
+          <button className="btn btn-outline btn-sm" onClick={() => openPreview(row)}><Eye size={14} /> View</button>
           <button className="btn btn-outline btn-sm" onClick={() => download(row)}><Download size={14} /> Download</button>
-          {canUpload && <button className="btn btn-outline btn-sm" onClick={() => remove(row)}><Trash2 size={14} /></button>}
+          {canDelete(row) && <button className="btn btn-danger btn-sm btn-icon" onClick={() => remove(row)} title="Delete"><Trash2 size={14} /></button>}
         </span>
       ),
     },
   ]
 
+  const visibleCategories = canManage
+    ? ALL_CATEGORIES
+    : ALL_CATEGORIES.filter((c) => c.value !== 'antecedent_verification')
+
   return (
     <>
       <PageHead
         title="Employee documents"
-        subtitle="HR documents and employee-uploaded PAN / Aadhaar KYC files"
+        subtitle="Your KYC uploads and HR documents, all in one place"
         actions={canUpload && (
-          <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setModal(true) }}>
+          <button className="btn btn-primary" onClick={openUpload}>
             <Upload size={15} /> Upload document
           </button>
         )}
@@ -180,19 +265,54 @@ export default function EmployeeDocuments() {
           <SearchableSelect
             value={category}
             onChange={setCategory}
-            options={[{ value: '', label: 'All document types' }, ...CATEGORIES.filter((c) => isHR || c.value !== 'antecedent_verification')]}
+            options={[{ value: '', label: 'All document types' }, ...visibleCategories]}
             placeholder="All document types"
             style={{ width: 260 }}
           />
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button className={`btn btn-sm ${view === 'tiles' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setView('tiles')}><LayoutGrid size={14} /> Tiles</button>
+            <button className={`btn btn-sm ${view === 'list' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setView('list')}><List size={14} /> List</button>
+          </div>
         </div>
-        <DataTable
-          columns={columns}
-          rows={filtered}
-          loading={loading}
-          emptyText={isHR ? 'No documents uploaded yet' : 'No documents available for your profile'}
-        />
+
+        {view === 'tiles' ? (
+          filtered.length ? (
+            <div className="doc-tiles">
+              {filtered.map((row) => (
+                <div className="doc-tile" key={row.id}>
+                  <button className="doc-tile-preview" onClick={() => openPreview(row)} title={`Preview ${row.original_filename}`}>
+                    {isImage(row) ? <FileImage size={38} /> : <FileText size={38} />}
+                  </button>
+                  <div className="doc-tile-body" onClick={() => openPreview(row)} style={{ cursor: 'pointer' }}>
+                    <span className="chip">{row.category_label}</span>
+                    <div className="doc-tile-name">{row.original_filename}</div>
+                    {isHR && <div className="doc-tile-meta">{row.employee_code} — {row.employee_name}</div>}
+                    <div className="doc-tile-meta">{Math.ceil((row.size_bytes || 0) / 1024)} KB · {fmtDate(row.uploaded_at)}</div>
+                    <div className="doc-tile-meta">Uploaded by {row.uploaded_by_name || 'HR'}</div>
+                  </div>
+                  <div className="doc-tile-actions">
+                    <button className="btn btn-outline btn-sm" onClick={() => openPreview(row)}><Eye size={14} /> View</button>
+                    <button className="btn btn-outline btn-sm" onClick={() => download(row)}><Download size={14} /></button>
+                    {canDelete(row) && <button className="btn btn-danger btn-sm btn-icon" onClick={() => remove(row)} title="Delete"><Trash2 size={14} /></button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="muted" style={{ padding: '28px 0', textAlign: 'center' }}>
+              {loading ? 'Loading documents…' : isHR ? 'No documents match your filters' : 'No documents uploaded yet — use Upload document to add your PAN / Aadhaar cards.'}
+            </div>
+          )
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            loading={loading}
+            emptyText={isHR ? 'No documents uploaded yet' : 'No documents available for your profile'}
+          />
+        )}
         <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
-          Employees can download their own documents and upload PAN / Aadhaar cards from My portal. HR sees every document; antecedent verification forms are HR-only.
+          Employees can upload their own PAN and Aadhaar cards here or in My portal. HR uploads (appointment order, medical fitness) appear in the same tile view; antecedent verification forms remain HR-only.
         </p>
       </Card>
 
@@ -208,23 +328,31 @@ export default function EmployeeDocuments() {
         }
       >
         <div className="form-grid">
-          <Field label="Employee" full>
-            <SearchableSelect
-              value={form.employee_id}
-              onChange={(value) => setForm({ ...form, employee_id: value })}
-              options={employees.map((e) => ({
-                value: e.id,
-                label: `${e.employee_code} — ${e.full_name || `${e.first_name} ${e.last_name}`.trim()}`,
-              }))}
-              placeholder="Search employee…"
-              clearable={false}
-            />
-          </Field>
+          {canManage ? (
+            <Field label="Employee" full>
+              <SearchableSelect
+                value={form.employee_id}
+                onChange={(value) => setForm({ ...form, employee_id: value })}
+                options={employees.map((e) => ({
+                  value: e.id,
+                  label: `${e.employee_code} — ${e.full_name || `${e.first_name} ${e.last_name}`.trim()}`,
+                }))}
+                placeholder="Search employee…"
+                clearable={false}
+              />
+            </Field>
+          ) : (
+            <Field label="Uploading for" full>
+              <div className="strong" style={{ paddingTop: 8 }}>
+                {selfEmployee?.employee_code ? `${selfEmployee.employee_code} — ${selfEmployee.full_name}` : user?.full_name || 'You'}
+              </div>
+            </Field>
+          )}
           <Field label="Document type" full>
             <SearchableSelect
               value={form.category}
               onChange={(value) => setForm({ ...form, category: value })}
-              options={CATEGORIES}
+              options={canManage ? ALL_CATEGORIES : EMPLOYEE_CATEGORIES}
               placeholder="Select document type"
               clearable={false}
             />
@@ -238,8 +366,31 @@ export default function EmployeeDocuments() {
           onChange={upload}
         />
         <p className="muted" style={{ fontSize: 12 }}>
-          PDF, Word or image files up to 20 MB. Uploading another file of the same type keeps both versions; the newest appears first.
+          Maximum {DOCUMENT_SIZE_MB} MB per file. Oversized images are compressed automatically; please compress PDF or Word files before uploading. Uploading another file of the same type keeps both versions; the newest appears first.
         </p>
+      </Modal>
+
+      <Modal
+        open={!!preview}
+        onClose={closePreview}
+        title={preview?.original_filename || 'Document preview'}
+        width={900}
+        footer={
+          <>
+            <button className="btn btn-outline" onClick={() => download(preview)}><Download size={15} /> Download</button>
+            <button className="btn btn-outline" onClick={closePreview}>Close</button>
+          </>
+        }
+      >
+        {previewLoading ? <div className="loader">Loading preview…</div> : (
+          previewUrl && isImage(preview) ? (
+            <img src={previewUrl} alt={preview.original_filename} style={{ display: 'block', maxWidth: '100%', maxHeight: '62vh', margin: '0 auto' }} />
+          ) : previewUrl && isPdf(preview) ? (
+            <iframe src={previewUrl} title={preview.original_filename} style={{ width: '100%', height: '62vh', border: '1px solid var(--slate-200)' }} />
+          ) : (
+            <div className="muted">Preview is not available for this file type. Download it to view.</div>
+          )
+        )}
       </Modal>
     </>
   )
