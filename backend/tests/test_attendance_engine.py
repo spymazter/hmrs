@@ -125,6 +125,24 @@ def test_single_out_with_repeated_in_keeps_first_in():
     assert sessions[0]["in"]["time"] == "09:39:00"
 
 
+def test_repeated_in_before_first_out_uses_first_in_and_last_out():
+    from datetime import datetime
+
+    from app.services.attendance_engine import NormalizedPunch
+
+    punches = [
+        NormalizedPunch(1, 1, datetime(2026, 11, 25, 9, 0), "in"),
+        NormalizedPunch(2, 1, datetime(2026, 11, 25, 13, 56), "in"),
+        NormalizedPunch(3, 1, datetime(2026, 11, 25, 15, 6), "out"),
+        NormalizedPunch(4, 1, datetime(2026, 11, 25, 18, 4), "out"),
+    ]
+    sessions, net_hours, _ = pair_punches(punches, "strict")
+    assert net_hours == 9.07
+    assert len(sessions) == 1
+    assert sessions[0]["in"]["time"] == "09:00:00"
+    assert sessions[0]["out"]["time"] == "18:04:00"
+
+
 def test_multiple_outs_still_pair_each_session():
     from datetime import datetime
 
