@@ -56,7 +56,8 @@ export default function MyPortal() {
   }
 
   const loadLeaves = () => {
-    api.get('/leaves/requests').then((r) => setLeaveRows(r.data)).catch(() => {})
+    const mine = user?.employee_id ? `?employee_id=${user.employee_id}` : ''
+    api.get(`/leaves/requests${mine}`).then((r) => setLeaveRows(r.data)).catch(() => {})
     api.get('/leaves/balances').then((r) => setLeaveBalances(r.data)).catch(() => {})
     api.get('/leave-types').then((r) => {
       setLeaveTypes(r.data)
@@ -67,15 +68,21 @@ export default function MyPortal() {
 
   useEffect(() => {
     api.get('/employees/me').then((r) => setProfile(r.data)).catch((e) => setError(errorMessage(e)))
-    api.get('/payroll/payslips').then((r) => setPayslips(r.data)).catch(() => {})
     loadDocuments()
     loadLeaves()
   }, [])
 
   useEffect(() => {
-    api.get(`/attendance/records?from_date=${from}&to_date=${todayStr()}&limit=100`)
+    const mine = user?.employee_id ? `?employee_id=${user.employee_id}` : ''
+    api.get(`/payroll/payslips${mine}`).then((r) => setPayslips(r.data)).catch(() => {})
+  }, [user?.employee_id])
+
+  useEffect(() => {
+    const params = new URLSearchParams({ from_date: from, to_date: todayStr(), limit: '100' })
+    if (user?.employee_id) params.set('employee_id', String(user.employee_id))
+    api.get(`/attendance/records?${params}`)
       .then((r) => setAttendance(r.data.items)).catch((e) => setError(errorMessage(e)))
-  }, [from])
+  }, [from, user?.employee_id])
 
   const download = async (slip) => {
     try {

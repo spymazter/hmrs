@@ -120,6 +120,7 @@ def _visible(db: Session, user: User, employee_id: int | None) -> None:
 @router.get("/requests", response_model=list[LeaveRequestOut])
 def list_requests(
     status: str | None = None,
+    employee_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require("leave.view", "self.portal")),
 ):
@@ -127,6 +128,9 @@ def list_requests(
     ids = visible_employee_ids(db, user)
     if ids is not None:
         query = query.filter(LeaveRequest.employee_id.in_(ids or [-1]))
+    if employee_id:
+        _visible(db, user, employee_id)
+        query = query.filter(LeaveRequest.employee_id == employee_id)
     if status:
         query = query.filter(LeaveRequest.status == status)
     return query.order_by(LeaveRequest.from_date.desc()).all()

@@ -323,3 +323,28 @@ def test_sick_leave_is_retired_from_leave_management():
         }
     finally:
         db.close()
+
+
+def test_leave_requests_can_be_scoped_to_one_employee():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        admin_role = _role(db, "AdminScope", ALL_LEAVE_CODES)
+        admin = _user(db, "admin-scope", admin_role)
+        general = db.query(Shift).filter(Shift.name == "General").first()
+        first = _employee(db, "SCP001", "9201", general)
+        second = _employee(db, "SCP002", "9202", general)
+        casual = _leave_type(db, "CL")
+        _apply(db, admin, first, casual, date(2026, 11, 2), date(2026, 11, 2))
+        _apply(db, admin, second, casual, date(2026, 11, 3), date(2026, 11, 3))
+
+        rows = leaves_router.list_requests(None, first.id, db, admin)
+        assert {row.employee_id for row in rows} == {first.id}
+
+        employee_role = _role(db, "EmployeeScope", ["self.portal", "leave.view", "leave.manage"])
+        first_user = _user(db, "scope-first", employee_role, first)
+        with pytest.raises(HTTPException) as exc:
+            leaves_router.list_requests(None, second.id, db, first_user)
+        assert exc.value.status_code == 403
+    finally:
+        db.close()
