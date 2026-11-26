@@ -16,6 +16,21 @@ const STATUS_COLORS = {
 }
 
 const firstOfMonth = () => `${todayStr().slice(0, 7)}-01`
+const dateText = (value) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+const lastMonthRange = () => {
+  const today = todayStr()
+  const year = Number(today.slice(0, 4))
+  const month = Number(today.slice(5, 7))
+  return {
+    from_date: dateText(new Date(year, month - 2, 1)),
+    to_date: dateText(new Date(year, month - 1, 0)),
+  }
+}
+const QUICK_RANGES = [
+  { value: 'custom', label: 'Custom range' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'last_month', label: 'Last month' },
+]
 const DEFAULT_FILTERS = {
   report: 'daily_basic', from_date: firstOfMonth(), to_date: todayStr(),
   department_id: [], location_id: [], designation_id: [], shift_id: [], employee_code: '',
@@ -38,6 +53,7 @@ export default function AdvancedReports() {
   const canManage = has('attendance.manage')
   const [meta, setMeta] = useState({ reports: [], departments: [], locations: [], designations: [], shifts: [] })
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
+  const [quickRange, setQuickRange] = useState('this_month')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -68,6 +84,21 @@ export default function AdvancedReports() {
       ...current,
       [key]: typeof value === 'function' ? value(current[key]) : value,
     }))
+  }
+
+  const setDate = (key, value) => {
+    setQuickRange('custom')
+    set(key, value)
+  }
+
+  const applyQuickRange = (value) => {
+    setQuickRange(value)
+    setNotice('')
+    if (value === 'this_month') {
+      setFilters((current) => ({ ...current, from_date: firstOfMonth(), to_date: todayStr() }))
+    } else if (value === 'last_month') {
+      setFilters((current) => ({ ...current, ...lastMonthRange() }))
+    }
   }
 
   const exportFile = async (format) => {
@@ -150,8 +181,9 @@ export default function AdvancedReports() {
             style={{ width: 320 }}
           />
         </div>
-        <div className="field-inline"><label>From</label><input type="date" value={filters.from_date} onChange={(e) => set('from_date', e.target.value)} style={{ width: 145 }} /></div>
-        <div className="field-inline"><label>To</label><input type="date" value={filters.to_date} onChange={(e) => set('to_date', e.target.value)} style={{ width: 145 }} /></div>
+        <div className="field-inline"><label>Quick range</label><SearchableSelect value={quickRange} onChange={applyQuickRange} options={QUICK_RANGES} clearable={false} style={{ width: 155 }} /></div>
+        <div className="field-inline"><label>From</label><input type="date" value={filters.from_date} onChange={(e) => setDate('from_date', e.target.value)} style={{ width: 145 }} /></div>
+        <div className="field-inline"><label>To</label><input type="date" value={filters.to_date} onChange={(e) => setDate('to_date', e.target.value)} style={{ width: 145 }} /></div>
         <div className="field-inline"><label>Employee code</label><input value={filters.employee_code} placeholder="e.g. DEV-111" onChange={(e) => set('employee_code', e.target.value)} style={{ width: 150 }} /></div>
       </div>
       <div className="toolbar">
