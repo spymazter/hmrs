@@ -108,6 +108,39 @@ def test_ot_below_threshold_is_ignored():
     assert len(sessions) == 1
 
 
+def test_single_out_with_repeated_in_keeps_first_in():
+    from datetime import datetime
+
+    from app.services.attendance_engine import NormalizedPunch
+
+    punches = [
+        NormalizedPunch(1, 1, datetime(2026, 11, 24, 9, 39), "in"),
+        NormalizedPunch(2, 1, datetime(2026, 11, 24, 11, 12), "in"),
+        NormalizedPunch(3, 1, datetime(2026, 11, 24, 12, 18), "in"),
+        NormalizedPunch(4, 1, datetime(2026, 11, 24, 19, 10), "out"),
+    ]
+    sessions, net_hours, _ = pair_punches(punches, "strict")
+    assert net_hours == 9.52
+    assert len(sessions) == 1
+    assert sessions[0]["in"]["time"] == "09:39:00"
+
+
+def test_multiple_outs_still_pair_each_session():
+    from datetime import datetime
+
+    from app.services.attendance_engine import NormalizedPunch
+
+    punches = [
+        NormalizedPunch(1, 1, datetime(2026, 11, 24, 9, 0), "in"),
+        NormalizedPunch(2, 1, datetime(2026, 11, 24, 12, 0), "out"),
+        NormalizedPunch(3, 1, datetime(2026, 11, 24, 13, 0), "in"),
+        NormalizedPunch(4, 1, datetime(2026, 11, 24, 18, 0), "out"),
+    ]
+    sessions, net_hours, _ = pair_punches(punches, "strict")
+    assert net_hours == 8.0
+    assert [s["in"]["time"] for s in sessions] == ["09:00:00", "13:00:00"]
+
+
 def test_leave_od_and_regularization_overlay():
     engine_db, Session = sample_db()
     db = Session()

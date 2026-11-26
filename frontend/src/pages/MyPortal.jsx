@@ -209,7 +209,7 @@ export default function MyPortal() {
       <div className="grid grid-2">
         <Card title="My attendance" subtitle="Last 30 days">
           <div className="toolbar"><div className="field-inline"><label>From</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 160 }} /></div></div>
-          <DataTable rows={attendance.slice(0, 15)} emptyText="No attendance records" columns={[
+          <DataTable rows={attendance} emptyText="No attendance records" columns={[
             { label: 'Date', render: (r) => <span className="strong">{r.record_date}</span> },
             { label: 'In', render: (r) => <span className="mono">{fmtTime(r.check_in)}</span> },
             { label: 'Out', render: (r) => <span className="mono">{fmtTime(r.check_out)}</span> },

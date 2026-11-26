@@ -441,7 +441,9 @@ def pair_punches(punches: list[NormalizedPunch], mode: str = "strict") -> tuple[
     """Return work sessions, net hours and break hours.
 
     ``strict`` creates every completed IN/OUT session and deducts the gaps
-    between them.  ``first_last`` uses the full span of the day.
+    between them.  With a single OUT for the day, repeated IN punches are
+    treated as device duplicates and the first IN is kept.  ``first_last``
+    uses the full span of the day.
     """
     if not punches:
         return [], 0.0, 0.0
@@ -457,6 +459,7 @@ def pair_punches(punches: list[NormalizedPunch], mode: str = "strict") -> tuple[
 
     sessions: list[dict] = []
     open_in: NormalizedPunch | None = None
+    out_count = sum(1 for punch in punches if _is_out(punch))
     for punch in punches:
         if _is_out(punch):
             if open_in is not None:
@@ -469,9 +472,12 @@ def pair_punches(punches: list[NormalizedPunch], mode: str = "strict") -> tuple[
                 open_in = None
         elif open_in is None:
             open_in = punch
-        else:
-            # A later IN punch supersedes the unmatched earlier one.
+        elif out_count > 1:
+            # With multiple OUT punches the day has real sessions, so a later
+            # IN supersedes an unmatched earlier IN.
             open_in = punch
+        # A single OUT with repeated INs is a device double-punch: keep the
+        # first IN so the full work span is not lost.
 
     net_seconds = sum(float(s["minutes"]) * 60 for s in sessions)
     break_seconds = 0.0
