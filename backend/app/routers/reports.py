@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require
 from app.database import get_db
-from app.models import AttendanceRecord, Department, Employee
+from app.models import AttendanceRecord, Department, Designation, Employee
 from app.services.attendance import recompute_records
 from app.services.attendance_engine import EngineFilters
 from app.services.report_pdf import STATUS_KEYS, build_report_pdf
@@ -31,7 +31,10 @@ AGGREGATE_COLUMNS = [
 ]
 
 
-def _records(db: Session, start: date, end: date, department_id: int | None, employee_id: int | None = None):
+def _records(
+    db: Session, start: date, end: date, department_id: int | None,
+    designation_id: int | None = None, employee_id: int | None = None,
+):
     query = (
         db.query(AttendanceRecord)
         .join(Employee)
@@ -39,16 +42,21 @@ def _records(db: Session, start: date, end: date, department_id: int | None, emp
     )
     if department_id:
         query = query.filter(Employee.department_id == department_id)
+    if designation_id:
+        query = query.filter(Employee.designation_id == designation_id)
     if employee_id:
         query = query.filter(AttendanceRecord.employee_id == employee_id)
     return query.order_by(Employee.employee_code, AttendanceRecord.record_date).all()
 
 
-def _employees(db: Session, start: date, end: date, department_id: int | None) -> list[Employee]:
+def _employees(
+    db: Session, start: date, end: date, department_id: int | None,
+    designation_id: int | None = None,
+) -> list[Employee]:
     """All current employees for the filter, plus anyone with records in the period.
 
-    Including employees with no attendance rows is what makes a department
-    report list every consultant rather than only those who happened to punch.
+    Including employees with no attendance rows is what makes a department or
+    designation report list everyone in scope, not only those who punched.
     """
     with_records = (
         db.query(AttendanceRecord.employee_id)
@@ -57,12 +65,16 @@ def _employees(db: Session, start: date, end: date, department_id: int | None) -
     )
     if department_id:
         with_records = with_records.filter(Employee.department_id == department_id)
+    if designation_id:
+        with_records = with_records.filter(Employee.designation_id == designation_id)
 
     query = db.query(Employee).filter(
         or_(Employee.status == "active", Employee.id.in_(select(with_records.subquery().c.employee_id)))
     )
     if department_id:
         query = query.filter(Employee.department_id == department_id)
+    if designation_id:
+        query = query.filter(Employee.designation_id == designation_id)
     return query.order_by(Employee.employee_code).all()
 
 
@@ -199,6 +211,7 @@ def _build_payload(
     month: int | None,
     week: int | None,
     department_id: int | None,
+    designation_id: int | None = None,
 ) -> dict:
     start, end, period_label, filename = _period_bounds(
         report_type, date_str, year, month, week
@@ -206,13 +219,15 @@ def _build_payload(
 
     department = db.query(Department).get(department_id) if department_id else None
     department_label = department.name if department else "All departments"
+    designation = db.query(Designation).get(designation_id) if designation_id else None
+    designation_label = designation.name if designation else "All designations"
 
-    records = _records(db, start, end, department_id)
+    records = _records(db, start, end, department_id, designation_id)
     records_by_employee = defaultdict(list)
     for record in records:
         records_by_employee[record.employee_id].append(record)
 
-    employees = _employees(db, start, end, department_id)
+    employees = _employees(db, start, end, department_id, designation_id)
     daily = report_type == "daily"
     rows = (_daily_rows(employees, records_by_employee, start) if daily
             else _aggregate_rows(employees, records_by_employee))
@@ -229,6 +244,7 @@ def _build_payload(
         "period": period_label,
         "period_label": period_label,
         "department_label": department_label,
+        "designation_label": designation_label,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "daily": daily,
@@ -248,6 +264,7 @@ def recompute_report(
     month: int | None = None,
     week: int | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     db: Session = Depends(get_db),
     _=Depends(require("attendance.manage")),
 ):
@@ -257,7 +274,8 @@ def recompute_report(
     except (TypeError, ValueError) as exc:
         raise HTTPException(400, f"Invalid report period: {exc}")
     count = recompute_records(
-        db, start, end, filters=EngineFilters(department_id=department_id)
+        db, start, end,
+        filters=EngineFilters(department_id=department_id, designation_id=designation_id),
     )
     return {
         "message": f"Recomputed {count} attendance records for {start} to {end}",
@@ -271,10 +289,11 @@ def recompute_report(
 def daily_report(
     date_str: str | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     db: Session = Depends(get_db),
     _=Depends(require("report.view")),
 ):
-    return _build_payload(db, "daily", date_str, None, None, None, department_id)
+    return _build_payload(db, "daily", date_str, None, None, None, department_id, designation_id)
 
 
 @router.get("/weekly")
@@ -282,10 +301,11 @@ def weekly_report(
     year: int | None = None,
     week: int | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     db: Session = Depends(get_db),
     _=Depends(require("report.view")),
 ):
-    return _build_payload(db, "weekly", None, year, None, week, department_id)
+    return _build_payload(db, "weekly", None, year, None, week, department_id, designation_id)
 
 
 @router.get("/monthly")
@@ -293,10 +313,11 @@ def monthly_report(
     year: int | None = None,
     month: int | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     db: Session = Depends(get_db),
     _=Depends(require("report.view")),
 ):
-    return _build_payload(db, "monthly", None, year, month, None, department_id)
+    return _build_payload(db, "monthly", None, year, month, None, department_id, designation_id)
 
 
 @router.get("/export")
@@ -307,10 +328,11 @@ def export_report(
     month: int | None = None,
     week: int | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     db: Session = Depends(get_db),
     _=Depends(require("report.export", "report.view")),
 ):
-    payload = _build_payload(db, type, date_str, year, month, week, department_id)
+    payload = _build_payload(db, type, date_str, year, month, week, department_id, designation_id)
     columns = payload["columns"]
     labeled_rows = [
         {label: row.get(key, "") for key, label in columns}
@@ -327,10 +349,11 @@ def export_report_pdf(
     month: int | None = None,
     week: int | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     db: Session = Depends(get_db),
     _=Depends(require("report.export", "report.view")),
 ):
-    payload = _build_payload(db, type, date_str, year, month, week, department_id)
+    payload = _build_payload(db, type, date_str, year, month, week, department_id, designation_id)
     content = build_report_pdf(payload)
     return Response(
         content=content,

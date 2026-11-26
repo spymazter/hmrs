@@ -35,10 +35,11 @@ export default function Reports() {
   const [data, setData] = useState(null)
   const [coverage, setCoverage] = useState(null)
   const [departments, setDepartments] = useState([])
+  const [designations, setDesignations] = useState([])
   const [busy, setBusy] = useState(false)
   const [filters, setFilters] = useState({
     date_str: todayStr(), year: now.getFullYear(), month: now.getMonth() + 1,
-    week: isoWeek.week, department_id: '',
+    week: isoWeek.week, department_id: '', designation_id: '',
   })
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -46,12 +47,14 @@ export default function Reports() {
 
   useEffect(() => {
     api.get('/departments').then((r) => setDepartments(r.data)).catch(() => {})
+    api.get('/designations').then((r) => setDesignations(r.data)).catch(() => {})
     api.get('/system/log-coverage').then((r) => setCoverage(r.data)).catch(() => {})
   }, [])
 
   const reportParams = () => {
     const params = new URLSearchParams()
     if (filters.department_id) params.set('department_id', filters.department_id)
+    if (filters.designation_id) params.set('designation_id', filters.designation_id)
     if (tab === 'daily') params.set('date_str', filters.date_str)
     else {
       params.set('year', filters.year)
@@ -107,6 +110,9 @@ export default function Reports() {
   const rows = data?.rows || []
   const summary = data?.summary || {}
   const daily = tab === 'daily'
+  const scopeLabel = data?.designation_label && data.designation_label !== 'All designations'
+    ? `${data.department_label} · ${data.designation_label}`
+    : data?.department_label || 'All departments'
 
   const statusChart = useMemo(() => Object.entries(data?.status_counts || {})
     .filter(([, value]) => value > 0)
@@ -199,6 +205,7 @@ export default function Reports() {
           </>
         )}
         <SearchableSelect value={filters.department_id} onChange={(v) => setFilters({ ...filters, department_id: v })} options={departments.map((d) => ({ value: d.id, label: d.name }))} placeholder="All departments" style={{ width: 190 }} />
+        <SearchableSelect value={filters.designation_id} onChange={(v) => setFilters({ ...filters, designation_id: v })} options={designations.map((d) => ({ value: d.id, label: d.name }))} placeholder="All designations" style={{ width: 190 }} />
       </div>
 
       {!data ? <div className="loader">Loading report…</div> : (
@@ -270,7 +277,7 @@ export default function Reports() {
             <span>Avg hours/employee: <strong>{summary.avg_hours || 0}</strong></span>
           </div>
 
-          <Card title={`${daily ? `Daily attendance — ${data.date}` : `${data.period} attendance summary`} · ${data.department_label}`}
+          <Card title={`${daily ? `Daily attendance — ${data.date}` : `${data.period} attendance summary`} · ${scopeLabel}`}
             subtitle={`${rows.length} employee rows (including employees with no punches)`}>
             <DataTable rows={rows} emptyText="No employees match this filter" columns={columns} />
           </Card>

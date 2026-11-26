@@ -1,7 +1,7 @@
 from datetime import date
 
 from conftest import sample_db
-from app.models import AttendanceRecord
+from app.models import AttendanceRecord, Designation, Employee
 from app.routers import advanced_reports, reports
 from app.services.attendance import recompute_records
 from app.services.attendance_engine import EngineFilters
@@ -33,13 +33,40 @@ def test_reports_recompute_uses_the_exact_report_period():
     db = Session()
     try:
         result = reports.recompute_report(
-            "monthly", None, 2026, 10, None, None, db, None
+            "monthly", None, 2026, 10, None, None, None, db, None
         )
-        payload = reports._build_payload(db, "monthly", None, 2026, 10, None, None)
+        payload = reports._build_payload(db, "monthly", None, 2026, 10, None, None, None)
 
         assert result["from_date"] == payload["start"] == "2026-10-01"
         assert result["to_date"] == payload["end"] == "2026-10-31"
         assert result["records"] > 0
+    finally:
+        db.close()
+
+
+def test_reports_recompute_can_be_scoped_by_designation():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        designation = db.query(Designation).first()
+        result = reports.recompute_report(
+            "daily", "2026-10-06", None, None, None, None, designation.id, db, None
+        )
+        rows = db.query(AttendanceRecord).filter(
+            AttendanceRecord.record_date == date(2026, 10, 6)
+        ).all()
+        payload = reports.daily_report("2026-10-06", None, designation.id, db, None)
+
+        assert result["records"] > 0
+        assert rows
+        assert all(db.get(Employee, row.employee_id).designation_id == designation.id for row in rows)
+        expected_codes = {
+            emp.employee_code for emp in db.query(Employee)
+            .filter(Employee.designation_id == designation.id).all()
+        }
+        assert payload["designation_label"] == designation.name
+        assert payload["rows"]
+        assert {row["employee_code"] for row in payload["rows"]} <= expected_codes
     finally:
         db.close()
 

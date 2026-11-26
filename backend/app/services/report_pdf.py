@@ -148,9 +148,14 @@ def build_report_pdf(report: dict) -> bytes:
     data_style = ParagraphStyle("DataCell", parent=styles["Normal"], fontSize=6.4, leading=7.6,
                                 textColor=colors.HexColor("#1e293b"))
 
+    filter_label = _fmt(report.get("department_label"))
+    designation_label = report.get("designation_label")
+    if designation_label and designation_label != "All designations":
+        filter_label += f" &nbsp;·&nbsp; {_fmt(designation_label)}"
+
     story = [
         Paragraph("Attendance report", title_style),
-        Paragraph(f"{_fmt(report.get('period_label'))} &nbsp;·&nbsp; {_fmt(report.get('department_label'))}", subtitle_style),
+        Paragraph(f"{_fmt(report.get('period_label'))} &nbsp;·&nbsp; {filter_label}", subtitle_style),
         Paragraph(f"Generated {datetime.now().strftime('%d %b %Y, %I:%M %p')} · {len(report.get('rows', []))} employee rows", small_style),
         Spacer(1, 7),
         _summary_table(report.get("summary", {}), {"head": head_style, "value": value_style}, width),
