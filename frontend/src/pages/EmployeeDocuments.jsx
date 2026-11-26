@@ -218,12 +218,7 @@ export default function EmployeeDocuments() {
     setPreview(row)
   }
 
-  const canDelete = (row) => canManage || (
-    canSelfUpload
-    && row.employee_id === user?.employee_id
-    && KYC_VALUES.includes(row.category)
-    && row.uploaded_by === user?.id
-  )
+  const canDelete = () => canManage
 
   const openUpload = (category) => {
     setForm({
