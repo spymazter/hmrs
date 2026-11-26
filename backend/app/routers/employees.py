@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/employees", tags=["Employees"])
 
 EMPLOYEE_EXPORT_HEADERS = [
     "ID", "Employee Code", "Device UID", "First Name", "Last Name", "Full Name",
-    "Email", "Phone", "Alternate Phone", "Date of Birth", "Gender",
+    "Email", "Phone", "Alternate Phone", "Date of Birth", "Gender", "Blood Group",
     "Emergency Contact Name", "Emergency Contact Phone", "Emergency Contact Relationship",
     "Address", "Date of Joining", "Status", "Department", "Designation", "Shift",
     "Shift Group", "Location", "Reporting Manager", "Created At",
@@ -41,7 +41,7 @@ def _employee_export_row(employee: Employee) -> dict:
         employee.id, employee.employee_code, employee.device_user_id,
         employee.first_name, employee.last_name, employee.full_name,
         employee.email, employee.phone, employee.alternate_phone,
-        employee.date_of_birth, employee.gender,
+        employee.date_of_birth, employee.gender, employee.blood_group,
         employee.emergency_contact_name, employee.emergency_contact_phone,
         employee.emergency_contact_relationship, employee.address,
         employee.date_of_joining, employee.status,

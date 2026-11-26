@@ -189,6 +189,7 @@ class Employee(Base):
     alternate_phone = Column(String(30))
     date_of_birth = Column(Date)
     gender = Column(String(20))
+    blood_group = Column(String(10))
     emergency_contact_name = Column(String(100))
     emergency_contact_phone = Column(String(30))
     emergency_contact_relationship = Column(String(50))

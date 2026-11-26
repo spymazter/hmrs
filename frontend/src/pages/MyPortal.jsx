@@ -10,6 +10,8 @@ import {
 } from '../components/ui'
 
 const GENDER_OPTIONS = ['Male', 'Female'].map((v) => ({ value: v, label: v }))
+const BLOOD_GROUP_OPTIONS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+  .map((v) => ({ value: v, label: v }))
 
 const KYC_CATEGORIES = [
   { value: 'employee_pan', label: 'Employee PAN card' },
@@ -45,7 +47,8 @@ export default function MyPortal() {
     ['first_name', 'First name'], ['last_name', 'Last name'],
     ['date_of_birth', 'Date of birth'], ['email', 'Email'],
     ['phone', 'Phone'], ['alternate_phone', 'Alternate phone'],
-    ['gender', 'Gender'], ['emergency_contact_name', 'Emergency contact name'],
+    ['gender', 'Gender'], ['blood_group', 'Blood group'],
+    ['emergency_contact_name', 'Emergency contact name'],
     ['emergency_contact_phone', 'Emergency contact phone'],
     ['emergency_contact_relationship', 'Relationship'], ['address', 'Address'],
     ['nominee_name', 'Nominee name'], ['nominee_relationship', 'Nominee relationship'],
@@ -234,6 +237,7 @@ export default function MyPortal() {
                 ['Name', `${profile.first_name} ${profile.last_name}`],
                 ['Username', user?.username || '—'],
                 ['Date of birth', profile.date_of_birth || '—'],
+                ['Blood group', profile.blood_group || '—'],
                 ['Email', profile.email || '—'],
                 ['Phone', profile.phone || '—'],
                 ['Alternate phone', profile.alternate_phone || '—'],
@@ -341,13 +345,13 @@ export default function MyPortal() {
         <div className="form-grid">
           {personalFields.map(([key, label]) => (
             <Field key={key} label={label} full={key === 'address'}>
-              {key === 'gender' ? (
+              {key === 'gender' || key === 'blood_group' ? (
                 <SearchableSelect
-                  value={form.gender ?? ''}
-                  onChange={(v) => setForm({ ...form, gender: v })}
-                  options={GENDER_OPTIONS}
+                  value={form[key] ?? ''}
+                  onChange={(v) => setForm({ ...form, [key]: v })}
+                  options={key === 'gender' ? GENDER_OPTIONS : BLOOD_GROUP_OPTIONS}
                   placeholder="—"
-                  searchPlaceholder="Search gender…"
+                  searchPlaceholder={key === 'gender' ? 'Search gender…' : 'Search blood group…'}
                 />
               ) : (
                 <input

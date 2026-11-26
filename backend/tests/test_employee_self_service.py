@@ -44,6 +44,26 @@ def _upload(db, user, employee, category, filename):
     )
 
 
+def test_employee_can_update_blood_group():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        role = _role(db, "Employee", ["self.portal", "document.view"])
+        employee = _employee(db, "SELF-BG", "9010", "Blood")
+        user = _user(db, "self-blood-group", role, employee)
+
+        updated = employees_router.update_my_profile(
+            EmployeeSelfUpdate(blood_group="O+"),
+            db,
+            user,
+        )
+
+        assert updated.blood_group == "O+"
+        assert db.get(Employee, employee.id).blood_group == "O+"
+    finally:
+        db.close()
+
+
 def test_employee_can_update_dob_and_nominee_details():
     _, Session = sample_db()
     db = Session()

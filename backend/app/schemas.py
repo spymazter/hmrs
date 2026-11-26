@@ -272,6 +272,7 @@ class EmployeeBase(BaseModel):
     alternate_phone: Optional[str] = None
     date_of_birth: Optional[date] = None
     gender: Optional[str] = None
+    blood_group: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
@@ -303,6 +304,7 @@ class EmployeeUpdate(BaseModel):
     alternate_phone: Optional[str] = None
     date_of_birth: Optional[date] = None
     gender: Optional[str] = None
+    blood_group: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
@@ -348,6 +350,7 @@ class EmployeeSelfUpdate(BaseModel):
     alternate_phone: Optional[str] = None
     date_of_birth: Optional[date] = None
     gender: Optional[str] = None
+    blood_group: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
@@ -364,6 +367,7 @@ class OnboardingRequest(ChangePasswordRequest):
     alternate_phone: Optional[str] = None
     date_of_birth: Optional[date] = None
     gender: Optional[str] = None
+    blood_group: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None

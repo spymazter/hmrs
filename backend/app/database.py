@@ -45,6 +45,7 @@ _COLUMN_MIGRATIONS = {
     "employees": {
         "alternate_phone": "VARCHAR(30)",
         "date_of_birth": "DATE",
+        "blood_group": "VARCHAR(10)",
         "emergency_contact_name": "VARCHAR(100)",
         "emergency_contact_phone": "VARCHAR(30)",
         "emergency_contact_relationship": "VARCHAR(50)",

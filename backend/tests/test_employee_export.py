@@ -32,11 +32,14 @@ def test_excel_export_includes_every_employee():
         assert "employees_" in response.headers["Content-Disposition"]
         sheet = load_workbook(io.BytesIO(response.body), read_only=True, data_only=True).active
         rows = list(sheet.values)
-        assert rows[0] == tuple(employees_router.EMPLOYEE_EXPORT_HEADERS)
+        headers = employees_router.EMPLOYEE_EXPORT_HEADERS
+        assert rows[0] == tuple(headers)
         assert len(rows) - 1 == total
-        codes = {row[1] for row in rows[1:]}
+        code_col = headers.index("Employee Code")
+        dept_col = headers.index("Department")
+        codes = {row[code_col] for row in rows[1:]}
         assert {"SMP001", "SMP009"}.issubset(codes)
-        assert any(row[17] == "Operations" for row in rows[1:])
+        assert any(row[dept_col] == "Operations" for row in rows[1:])
     finally:
         db.close()
 
