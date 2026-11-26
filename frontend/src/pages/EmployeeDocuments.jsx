@@ -318,7 +318,7 @@ export default function EmployeeDocuments() {
         <span style={{ display: 'inline-flex', gap: 6 }}>
           <button className="btn btn-outline btn-sm" onClick={() => openPreview(row)}><Eye size={14} /> View</button>
           <button className="btn btn-outline btn-sm" onClick={() => download(row)}><Download size={14} /> Download</button>
-          {canDelete(row) && <button className="btn btn-danger btn-sm btn-icon" onClick={() => remove(row)} title="Delete"><Trash2 size={14} /></button>}
+          {canDelete(row) && <button className="btn btn-danger btn-sm" onClick={() => remove(row)} title="Delete"><Trash2 size={14} /> Delete</button>}
         </span>
       ),
     },
@@ -484,8 +484,8 @@ export default function EmployeeDocuments() {
                   </div>
                   <div className="doc-tile-actions">
                     <button className="btn btn-outline btn-sm" onClick={() => openPreview(row)}><Eye size={14} /> View</button>
-                    <button className="btn btn-outline btn-sm" onClick={() => download(row)}><Download size={14} /></button>
-                    {canDelete(row) && <button className="btn btn-danger btn-sm btn-icon" onClick={() => remove(row)} title="Delete"><Trash2 size={14} /></button>}
+                    <button className="btn btn-outline btn-sm" onClick={() => download(row)}><Download size={14} /> Download</button>
+                    {canDelete(row) && <button className="btn btn-danger btn-sm" onClick={() => remove(row)} title="Delete"><Trash2 size={14} /> Delete</button>}
                   </div>
                 </div>
               ))}
