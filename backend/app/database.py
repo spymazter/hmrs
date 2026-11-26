@@ -38,6 +38,10 @@ Base = declarative_base()
 # Lightweight, idempotent column migrations for the SQLite database.  This keeps
 # existing installations working without losing any attendance/payroll data.
 _COLUMN_MIGRATIONS = {
+    "attendance_records": {
+        "lunch_in": "DATETIME",
+        "lunch_out": "DATETIME",
+    },
     "employees": {
         "alternate_phone": "VARCHAR(30)",
         "date_of_birth": "DATE",

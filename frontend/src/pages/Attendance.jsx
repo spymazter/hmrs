@@ -163,6 +163,8 @@ export default function Attendance() {
     { label: 'Employee', render: (r) => <><span className="strong">{r.employee_name}</span><span className="sub">{r.employee_code}</span></> },
     { label: 'Shift', render: (r) => r.shift_name || '—' },
     { label: 'Check in', render: (r) => <span className="mono">{fmtTime(r.check_in)}</span> },
+    { label: 'Lunch check out', render: (r) => <span className="mono">{fmtTime(r.lunch_out)}</span> },
+    { label: 'Lunch check in', render: (r) => <span className="mono">{fmtTime(r.lunch_in)}</span> },
     { label: 'Check out', render: (r) => <span className="mono">{fmtTime(r.check_out)}</span> },
     { label: 'Hours', render: (r) => <span className="mono">{r.total_hours}</span> },
     { label: 'OT', render: (r) => <span className="mono">{r.overtime_hours}</span> },

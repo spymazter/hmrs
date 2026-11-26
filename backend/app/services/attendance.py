@@ -39,6 +39,17 @@ def _clock(value: str, day: date) -> datetime | None:
         return None
 
 
+def _lunch_times(calc):
+    """Return (lunch out, lunch in) from a four-punch lunch sequence."""
+    punches = getattr(calc, "raw_punches", None) or []
+    if len(punches) < 4:
+        return None, None
+    lunch_out, lunch_in = punches[1].punch_time, punches[2].punch_time
+    if lunch_out >= lunch_in:
+        return None, None
+    return lunch_out, lunch_in
+
+
 def recompute_records(
     db: Session,
     start_date: date,
@@ -69,12 +80,15 @@ def recompute_records(
         overtime = round2(
             calc.regular_ot_hours + calc.holiday_ot_hours + calc.weekoff_ot_hours
         )
+        lunch_out, lunch_in = _lunch_times(calc)
         records.append(AttendanceRecord(
             employee_id=calc.employee_id,
             record_date=day,
             shift_id=calc.shift_id,
             check_in=_clock(calc.first_in, day),
             check_out=_clock(calc.last_out, day),
+            lunch_out=lunch_out,
+            lunch_in=lunch_in,
             total_hours=calc.net_hours,
             overtime_hours=overtime,
             late_minutes=calc.late_by,

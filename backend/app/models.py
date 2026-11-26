@@ -357,6 +357,8 @@ class AttendanceRecord(Base):
     shift_id = Column(Integer, ForeignKey("shifts.id"))
     check_in = Column(DateTime)
     check_out = Column(DateTime)
+    lunch_in = Column(DateTime)   # 3rd punch of the IN / lunch-out / lunch-in / Exit sequence
+    lunch_out = Column(DateTime)  # 2nd punch of the IN / lunch-out / lunch-in / Exit sequence
     total_hours = Column(Float, default=0)
     overtime_hours = Column(Float, default=0)
     late_minutes = Column(Integer, default=0)

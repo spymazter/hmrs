@@ -453,6 +453,8 @@ class AttendanceOut(ORMBase):
     shift_name: Optional[str] = None
     check_in: Optional[datetime] = None
     check_out: Optional[datetime] = None
+    lunch_in: Optional[datetime] = None
+    lunch_out: Optional[datetime] = None
     total_hours: float
     overtime_hours: float
     late_minutes: int
