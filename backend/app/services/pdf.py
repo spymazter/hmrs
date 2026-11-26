@@ -56,6 +56,7 @@ def generate_payslip_pdf(payslip, db) -> str:
         ["Department", emp.department_name if emp and emp.department_name else "-", "Designation", emp.designation_name if emp and emp.designation_name else "-"],
         ["Pay Period", period.name, "Working Days", str(payslip.working_days)],
         ["Days Present", str(payslip.days_present), "Paid Days", str(payslip.paid_days)],
+        ["LOP Days", str(getattr(payslip, "lop_days", 0) or 0), "LOP Amount", _money(getattr(payslip, "lop_amount", 0) or 0)],
     ]
     info_table = Table(info, colWidths=[32 * mm, 55 * mm, 32 * mm, 55 * mm])
     info_table.setStyle(TableStyle([
@@ -84,6 +85,8 @@ def generate_payslip_pdf(payslip, db) -> str:
         ("Income Tax", payslip.income_tax),
         ("Other Deductions", payslip.other_deductions),
     ]
+    if (getattr(payslip, "lop_days", 0) or 0) > 0:
+        deductions.append(("LOP (full-day, prorated)", getattr(payslip, "lop_amount", 0) or 0))
     rows = [["Earnings", "Amount", "Deductions", "Amount"]]
     for index in range(max(len(earnings), len(deductions))):
         e_name, e_amount = earnings[index] if index < len(earnings) else ("", "")

@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.models import (
-    CompOff, Department, Designation, Employee, Holiday, LeaveRequest,
+    CompOff, Department, Designation, Employee, Holiday, LeaveQuota, LeaveRequest,
     LeaveType, Location, OnDutyRequest, PunchLog, Regularization, Shift,
     ShiftRoster,
 )
@@ -64,8 +64,24 @@ def create_sample_db(url: str = "sqlite://"):
         db.add_all([general, night, flexi, rotation_a, rotation_b])
         db.flush()
 
-        for name, paid in (("Casual Leave", True), ("Sick Leave", True), ("Unpaid Leave", False)):
-            db.add(LeaveType(name=name, is_paid=paid, max_days_per_year=12))
+        leave_types = {}
+        for name, code, quota, paid in (
+            ("Casual Leave", "CL", 12, True),
+            ("Sick Leave", "SL", 12, True),
+            ("Earned Leave", "EL", 18, True),
+            ("Restricted Holiday", "RH", 2, True),
+            ("Loss of Pay", "LOP", 0, False),
+        ):
+            item = LeaveType(name=name, code=code, is_paid=paid, max_days_per_year=quota)
+            db.add(item)
+            leave_types[code] = item
+        db.flush()
+        for code, quota in (("CL", 12), ("SL", 12), ("EL", 18), ("RH", 2), ("LOP", 0)):
+            db.add(LeaveQuota(
+                scope="global", scope_value="ALL", leave_type_id=leave_types[code].id,
+                year=SAMPLE_START.year, days=quota,
+            ))
+        casual = leave_types["CL"]
 
         specs = [
             ("SMP001", "Asha", general),
@@ -123,7 +139,6 @@ def create_sample_db(url: str = "sqlite://"):
         punch("SMP003", _dt(date(2026, 10, 8), "09:05"), "in")
 
         # Approved leave on 6 Oct.
-        casual = db.query(LeaveType).filter_by(name="Casual Leave").first()
         db.add(LeaveRequest(
             employee_id=employees["SMP004"].id, leave_type_id=casual.id,
             from_date=date(2026, 10, 6), to_date=date(2026, 10, 6),

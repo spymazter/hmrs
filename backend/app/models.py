@@ -388,6 +388,8 @@ class LeaveType(Base):
     __tablename__ = "leave_types"
     id = Column(Integer, primary_key=True)
     name = Column(String(100), unique=True, nullable=False)
+    # Stable short code used by quotas, balances and payslips (CL, SL, EL, RH, LOP).
+    code = Column(String(20), unique=True)
     is_paid = Column(Boolean, default=True)
     max_days_per_year = Column(Integer, default=12)
     color = Column(String(20), default="#0ea5e9")
@@ -401,12 +403,68 @@ class LeaveRequest(Base):
     from_date = Column(Date, nullable=False)
     to_date = Column(Date, nullable=False)
     reason = Column(Text)
-    status = Column(String(20), default="pending")  # pending / approved / rejected
-    approved_by = Column(Integer, ForeignKey("users.id"))
+    # Employee applies -> manager approves -> HR verifies -> admin final approves.
+    # Legacy rows keep "approved"/"rejected"; new rows use the staged values below.
+    status = Column(String(24), default="pending")  # pending/manager_approved/verified/approved/rejected
+    approved_by = Column(Integer, ForeignKey("users.id"))  # legacy + final approver
+    manager_approved_by = Column(Integer, ForeignKey("users.id"))
+    manager_approved_at = Column(DateTime)
+    hr_verified_by = Column(Integer, ForeignKey("users.id"))
+    hr_verified_at = Column(DateTime)
+    verification_notes = Column(Text)
+    final_approved_by = Column(Integer, ForeignKey("users.id"))
+    final_approved_at = Column(DateTime)
+    rejected_by = Column(Integer, ForeignKey("users.id"))
+    reject_reason = Column(Text)
+    decided_at = Column(DateTime)
+    is_full_day = Column(Boolean, default=True)
+    restricted_holiday_id = Column(Integer, ForeignKey("restricted_holidays.id", ondelete="SET NULL"))
     created_at = Column(DateTime, default=datetime.now)
 
     employee = relationship("Employee")
     leave_type = relationship("LeaveType")
+    restricted_holiday = relationship("RestrictedHoliday")
+
+    @property
+    def employee_name(self):
+        return self.employee.full_name if self.employee else None
+
+    @property
+    def employee_code(self):
+        return self.employee.employee_code if self.employee else None
+
+    @property
+    def leave_type_name(self):
+        return self.leave_type.name if self.leave_type else None
+
+    @property
+    def leave_type_code(self):
+        return self.leave_type.code if self.leave_type else None
+
+    @property
+    def days(self):
+        return (self.to_date - self.from_date).days + 1 if self.from_date and self.to_date else 0
+
+
+class LeaveQuota(Base):
+    """Yearly leave quota, either global or mapped to one employee by HR."""
+    __tablename__ = "leave_quotas"
+    id = Column(Integer, primary_key=True)
+    scope = Column(String(20), default="global", nullable=False)  # global / employee
+    scope_value = Column(String(50), default="ALL", nullable=False)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"))
+    leave_type_id = Column(Integer, ForeignKey("leave_types.id", ondelete="CASCADE"), nullable=False)
+    year = Column(Integer, nullable=False)
+    days = Column(Float, default=0)
+    updated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    employee = relationship("Employee")
+    leave_type = relationship("LeaveType")
+
+    @property
+    def employee_code(self):
+        return self.employee.employee_code if self.employee else None
 
     @property
     def employee_name(self):
@@ -415,6 +473,38 @@ class LeaveRequest(Base):
     @property
     def leave_type_name(self):
         return self.leave_type.name if self.leave_type else None
+
+    @property
+    def leave_type_code(self):
+        return self.leave_type.code if self.leave_type else None
+
+    __table_args__ = (
+        UniqueConstraint("scope", "scope_value", "leave_type_id", "year", name="uq_leave_quota_scope"),
+    )
+
+
+class RestrictedHoliday(Base):
+    """HR-maintained yearly list of restricted holidays employees may choose from."""
+    __tablename__ = "restricted_holidays"
+    id = Column(Integer, primary_key=True)
+    year = Column(Integer, nullable=False, index=True)
+    holiday_date = Column(Date, nullable=False, unique=True, index=True)
+    name = Column(String(150), nullable=False)
+    reason = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.now)
+
+
+class CompOffAccrualState(Base):
+    """Cumulative extra hours that have not yet become a full comp-off day."""
+    __tablename__ = "comp_off_accrual_states"
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True)
+    extra_hours_balance = Column(Float, default=0)
+    last_accrual_date = Column(Date)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    employee = relationship("Employee")
 
 
 class Holiday(Base):
@@ -453,7 +543,7 @@ class OnDutyRequest(Base):
 
 
 class CompOff(Base):
-    """Compensatory off earned on weekly-off/holiday work and later consumed."""
+    """Compensatory off earned from extra hours or granted manually."""
     __tablename__ = "comp_offs"
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -463,10 +553,14 @@ class CompOff(Base):
     reason = Column(Text)
     status = Column(String(20), default="approved")  # pending / approved / used / expired
     approved_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    source = Column(String(30), default="manual")  # manual / auto_9h
+    rule = Column(String(80), default="manual")
+    extra_hours = Column(Float, default=0)
+    extra_hours_balance = Column(Float, default=0)
     created_at = Column(DateTime, default=datetime.now)
     employee = relationship("Employee")
     __table_args__ = (
-        UniqueConstraint("employee_id", "work_date", name="uq_comp_off_work_date"),
+        UniqueConstraint("employee_id", "work_date", "source", name="uq_comp_off_source_date"),
     )
 
 
@@ -547,6 +641,10 @@ class Payslip(Base):
     working_days = Column(Integer, default=0)
     days_present = Column(Float, default=0)
     paid_days = Column(Float, default=0)
+    # Full-day LOP is already excluded from paid_days; these fields make the
+    # deduction visible on the slip without deducting it twice.
+    lop_days = Column(Float, default=0)
+    lop_amount = Column(Float, default=0)
     basic = Column(Float, default=0)
     hra = Column(Float, default=0)
     allowances = Column(Float, default=0)

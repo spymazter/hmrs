@@ -33,9 +33,10 @@ export function Card({ title, subtitle, actions, children, className = '' }) {
 
 const STATUS_COLORS = {
   present: 'green', active: 'green', approved: 'green', processed: 'green', paid: 'green',
-  in: 'green', live: 'green',
+  in: 'green', live: 'green', verified: 'green',
   absent: 'red', rejected: 'red', inactive: 'red', left: 'red', out: 'red', error: 'red',
-  half_day: 'amber', pending: 'amber', draft: 'amber', generated: 'blue',
+  half_day: 'amber', pending: 'amber', draft: 'amber', manager_approved: 'amber',
+  generated: 'blue',
   leave: 'blue', week_off: 'blue', holiday: 'purple', break_in: 'blue', simulate: 'purple',
 }
 

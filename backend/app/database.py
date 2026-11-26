@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import date
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -71,6 +72,33 @@ _COLUMN_MIGRATIONS = {
     },
     "device_sync_jobs": {
         "full_history": "BOOLEAN DEFAULT 0",
+    },
+    "leave_types": {
+        "code": "VARCHAR(20)",
+    },
+    "leave_requests": {
+        "manager_approved_by": "INTEGER",
+        "manager_approved_at": "DATETIME",
+        "hr_verified_by": "INTEGER",
+        "hr_verified_at": "DATETIME",
+        "verification_notes": "TEXT",
+        "final_approved_by": "INTEGER",
+        "final_approved_at": "DATETIME",
+        "rejected_by": "INTEGER",
+        "reject_reason": "TEXT",
+        "decided_at": "DATETIME",
+        "is_full_day": "BOOLEAN DEFAULT 1",
+        "restricted_holiday_id": "INTEGER",
+    },
+    "comp_offs": {
+        "source": "VARCHAR(30) DEFAULT 'manual'",
+        "rule": "VARCHAR(80)",
+        "extra_hours": "FLOAT DEFAULT 0",
+        "extra_hours_balance": "FLOAT DEFAULT 0",
+    },
+    "payslips": {
+        "lop_days": "FLOAT DEFAULT 0",
+        "lop_amount": "FLOAT DEFAULT 0",
     },
 }
 
@@ -169,6 +197,252 @@ def _grant_document_permissions() -> None:
                 )
 
 
+def _has_marker(key: str) -> bool:
+    with engine.connect() as connection:
+        return connection.execute(
+            text("SELECT 1 FROM app_settings WHERE key = :key"), {"key": key}
+        ).first() is not None
+
+
+def _set_marker(key: str, value: str) -> None:
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (:key, :value, datetime('now')) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"
+        ), {"key": key, "value": value})
+
+
+def _create_leave_tables() -> None:
+    """Create leave quota / restricted-holiday tables on existing installs."""
+    statements = [
+        """
+        CREATE TABLE IF NOT EXISTS leave_quotas (
+            id INTEGER PRIMARY KEY,
+            scope VARCHAR(20) NOT NULL DEFAULT 'global',
+            scope_value VARCHAR(50) NOT NULL DEFAULT 'ALL',
+            employee_id INTEGER,
+            leave_type_id INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            days FLOAT DEFAULT 0,
+            updated_by INTEGER,
+            updated_at DATETIME,
+            CONSTRAINT uq_leave_quota_scope UNIQUE (scope, scope_value, leave_type_id, year),
+            FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+            FOREIGN KEY(leave_type_id) REFERENCES leave_types(id) ON DELETE CASCADE,
+            FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS restricted_holidays (
+            id INTEGER PRIMARY KEY,
+            year INTEGER NOT NULL,
+            holiday_date DATE NOT NULL,
+            name VARCHAR(150) NOT NULL,
+            reason TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            created_by INTEGER,
+            created_at DATETIME,
+            CONSTRAINT uq_restricted_holiday_date UNIQUE (holiday_date),
+            FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_restricted_holidays_year ON restricted_holidays (year)",
+        """
+        CREATE TABLE IF NOT EXISTS comp_off_accrual_states (
+            employee_id INTEGER PRIMARY KEY,
+            extra_hours_balance FLOAT DEFAULT 0,
+            last_accrual_date DATE,
+            updated_at DATETIME,
+            FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE
+        )
+        """,
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def _seed_leave_defaults() -> None:
+    """Seed stable leave codes and the statutory yearly quotas without touching requests."""
+    key = "leave_workflow_defaults_v1"
+    if _has_marker(key):
+        return
+    with engine.begin() as connection:
+        for name, code in (
+            ("Casual Leave", "CL"), ("Sick Leave", "SL"), ("Earned Leave", "EL"),
+            ("Unpaid Leave", "LOP"), ("Loss of Pay", "LOP"),
+        ):
+            connection.execute(text(
+                "UPDATE leave_types SET code = :code "
+                "WHERE lower(trim(name)) = :name AND (code IS NULL OR trim(code) = '') "
+                "AND NOT EXISTS (SELECT 1 FROM leave_types other WHERE other.code = :code)"
+            ), {"code": code, "name": name.casefold()})
+
+        for name, code, quota, paid, color in (
+            ("Restricted Holiday", "RH", 2, 1, "#8b5cf6"),
+            ("Loss of Pay", "LOP", 0, 0, "#ef4444"),
+        ):
+            connection.execute(text(
+                "INSERT INTO leave_types (name, code, is_paid, max_days_per_year, color) "
+                "SELECT :name, :code, :paid, :quota, :color "
+                "WHERE NOT EXISTS (SELECT 1 FROM leave_types "
+                "WHERE code = :code OR lower(trim(name)) = lower(:name))"
+            ), {"name": name, "code": code, "paid": paid, "quota": quota, "color": color})
+
+        connection.execute(text(
+            "UPDATE leave_types SET max_days_per_year = 18 "
+            "WHERE code = 'EL' OR lower(trim(name)) = 'earned leave'"
+        ))
+
+        year = date.today().year
+        for code, quota in (("CL", 12), ("SL", 12), ("EL", 18), ("RH", 2), ("LOP", 0)):
+            row = connection.execute(
+                text("SELECT id FROM leave_types WHERE code = :code"), {"code": code}
+            ).first()
+            if not row:
+                continue
+            connection.execute(text(
+                "INSERT INTO leave_quotas (scope, scope_value, leave_type_id, year, days, updated_at) "
+                "VALUES ('global', 'ALL', :leave_type_id, :year, :days, datetime('now')) "
+                "ON CONFLICT(scope, scope_value, leave_type_id, year) DO NOTHING"
+            ), {"leave_type_id": row.id, "year": year, "days": quota})
+    _set_marker(key, date.today().isoformat())
+
+
+def _grant_leave_permissions() -> None:
+    """Give existing installs the staged leave workflow permissions."""
+    all_codes = {
+        "leave.manager_approve", "leave.verify", "leave.final_approve",
+        "leave.quota.manage",
+    }
+    grants = {
+        "admin": all_codes,
+        "hr manager": {"leave.verify", "leave.quota.manage"},
+        "manager": {"leave.manager_approve"},
+    }
+    with engine.begin() as connection:
+        rows = connection.execute(text("SELECT id, name, permissions FROM roles")).fetchall()
+        for row in rows:
+            wanted = grants.get((row.name or "").strip().casefold())
+            if not wanted:
+                continue
+            try:
+                permissions = json.loads(row.permissions or "[]")
+            except (TypeError, ValueError):
+                permissions = []
+            updated = list(permissions)
+            for code in sorted(wanted):
+                if code not in updated:
+                    updated.append(code)
+            if updated != permissions:
+                connection.execute(
+                    text("UPDATE roles SET permissions = :permissions WHERE id = :id"),
+                    {"permissions": json.dumps(updated), "id": row.id},
+                )
+
+
+def _link_demo_manager() -> None:
+    key = "leave_demo_manager_links_v1"
+    if _has_marker(key):
+        return
+    with engine.begin() as connection:
+        manager = connection.execute(
+            text("SELECT id FROM employees WHERE lower(trim(employee_code)) = 'emp008'")
+        ).first()
+        if manager:
+            for code in ("emp001", "emp002", "emp003", "emp004"):
+                connection.execute(text(
+                    "UPDATE employees SET manager_id = :manager_id "
+                    "WHERE lower(trim(employee_code)) = :code AND manager_id IS NULL"
+                ), {"manager_id": manager.id, "code": code})
+    _set_marker(key, date.today().isoformat())
+
+
+def _link_demo_manager_user() -> None:
+    """Link the demo manager account to EMP008 so it can approve its reports."""
+    key = "leave_demo_manager_user_v1"
+    if _has_marker(key):
+        return
+    with engine.begin() as connection:
+        manager = connection.execute(
+            text("SELECT id FROM employees WHERE lower(trim(employee_code)) = 'emp008'")
+        ).first()
+        if manager:
+            connection.execute(text(
+                "UPDATE users SET employee_id = :manager_id "
+                "WHERE lower(trim(username)) = 'manager' AND employee_id IS NULL"
+            ), {"manager_id": manager.id})
+    _set_marker(key, date.today().isoformat())
+
+
+def _migrate_comp_off_sources() -> None:
+    """Allow manual and automatic comp-offs to coexist for the same work date."""
+    key = "comp_off_source_v1"
+    if _has_marker(key):
+        return
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("comp_offs")}
+    old_unique = False
+    for constraint in inspector.get_unique_constraints("comp_offs"):
+        names = {str(name).lower() for name in (constraint.get("column_names") or [])}
+        if names == {"employee_id", "work_date"}:
+            old_unique = True
+    for index in inspector.get_indexes("comp_offs"):
+        names = {str(name).lower() for name in (index.get("column_names") or [])}
+        if names == {"employee_id", "work_date"} and index.get("unique"):
+            old_unique = True
+
+    statements = []
+    if old_unique:
+        statements += [
+            """
+            CREATE TABLE comp_offs_new (
+                id INTEGER PRIMARY KEY,
+                employee_id INTEGER NOT NULL,
+                work_date DATE NOT NULL,
+                expiry_date DATE,
+                days FLOAT DEFAULT 1,
+                reason TEXT,
+                status VARCHAR(20) DEFAULT 'approved',
+                approved_by INTEGER,
+                source VARCHAR(30) DEFAULT 'manual',
+                rule VARCHAR(80),
+                extra_hours FLOAT DEFAULT 0,
+                extra_hours_balance FLOAT DEFAULT 0,
+                created_at DATETIME,
+                CONSTRAINT uq_comp_off_source_date UNIQUE (employee_id, work_date, source),
+                FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                FOREIGN KEY(approved_by) REFERENCES users(id) ON DELETE SET NULL
+            )
+            """,
+            f"""
+            INSERT INTO comp_offs_new
+                (id, employee_id, work_date, expiry_date, days, reason, status,
+                 approved_by, source, rule, extra_hours, extra_hours_balance, created_at)
+            SELECT id, employee_id, work_date, expiry_date, days, reason, status,
+                   approved_by,
+                   {'''(COALESCE(source, 'manual'))''' if 'source' in columns else "'manual'"},
+                   {'''rule''' if 'rule' in columns else 'NULL'},
+                   {'''COALESCE(extra_hours, 0)''' if 'extra_hours' in columns else '0'},
+                   {'''COALESCE(extra_hours_balance, 0)''' if 'extra_hours_balance' in columns else '0'},
+                   created_at
+            FROM comp_offs
+            """,
+            "DROP TABLE comp_offs",
+            "ALTER TABLE comp_offs_new RENAME TO comp_offs",
+            "CREATE INDEX IF NOT EXISTS ix_comp_off_employee_id ON comp_offs (employee_id)",
+        ]
+    else:
+        statements.append(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_comp_off_source_date "
+            "ON comp_offs (employee_id, work_date, source)"
+        )
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+    _set_marker(key, date.today().isoformat())
+
+
 def run_migrations() -> None:
     """Add new columns to an existing database without recreating tables."""
     inspector = inspect(engine)
@@ -201,6 +475,12 @@ def run_migrations() -> None:
 
     _migrate_identity_reservations()
     _grant_document_permissions()
+    _create_leave_tables()
+    _seed_leave_defaults()
+    _grant_leave_permissions()
+    _link_demo_manager()
+    _link_demo_manager_user()
+    _migrate_comp_off_sources()
 
 
 def get_db():

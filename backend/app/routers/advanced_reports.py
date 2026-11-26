@@ -23,6 +23,7 @@ from app.services.attendance import recompute_records
 from app.services.attendance_engine import (
     EngineFilters, get_engine_config, save_engine_config,
 )
+from app.services.comp_off import accrue_comp_offs, balance_for
 from app.services.report_formatters import (
     to_csv_bytes, to_json_bytes, to_pdf_bytes, to_xlsx_bytes,
 )
@@ -280,9 +281,44 @@ def create_on_duty(
     return item
 
 
+class CompOffAccrueIn(BaseModel):
+    start_date: str
+    end_date: str
+    force: bool = False
+
+
 @router.get("/comp-offs")
 def list_comp_offs(db: Session = Depends(get_db), _=Depends(require("report.view", "attendance.view"))):
     return db.query(CompOff).order_by(CompOff.work_date.desc()).limit(1000).all()
+
+
+@router.post("/comp-offs/accrue")
+def accrue_compoffs(
+    payload: CompOffAccrueIn,
+    db: Session = Depends(get_db),
+    user=Depends(require("attendance.manage")),
+):
+    start = parse_date(payload.start_date)
+    end = parse_date(payload.end_date)
+    if not start or not end or start > end:
+        raise HTTPException(400, "Invalid comp-off accrual date range")
+    try:
+        return accrue_comp_offs(db, start, end, user_id=user.id, force=payload.force)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/comp-offs/balance")
+def comp_off_balance(
+    employee_id: int | None = None,
+    db: Session = Depends(get_db),
+    user=Depends(require("report.view", "attendance.view", "self.portal")),
+):
+    if employee_id is None:
+        employee_id = user.employee_id
+    if not employee_id:
+        raise HTTPException(400, "employee_id is required")
+    return balance_for(db, employee_id)
 
 
 @router.post("/comp-offs", status_code=201)
@@ -294,7 +330,9 @@ def create_comp_off(
     work_date = parse_date(payload.work_date)
     if not work_date:
         raise HTTPException(400, "Invalid work_date")
-    existing = db.query(CompOff).filter_by(employee_id=payload.employee_id, work_date=work_date).first()
+    existing = db.query(CompOff).filter_by(
+        employee_id=payload.employee_id, work_date=work_date, source="manual"
+    ).first()
     if existing:
         raise HTTPException(400, "Comp-off already exists for this employee and date")
     item = CompOff(

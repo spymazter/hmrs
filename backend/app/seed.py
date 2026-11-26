@@ -9,8 +9,9 @@ from app.auth import hash_password
 from app.config import settings
 from app.database import Base, engine, run_migrations
 from app.models import (
-    AppSetting, Department, Designation, Device, Employee, Holiday, LeaveType,
-    PayrollPeriod, PunchLog, Role, RoleGroup, SalaryStructure, Shift, User,
+    AppSetting, Department, Designation, Device, Employee, Holiday, LeaveQuota,
+    LeaveType, PayrollPeriod, PunchLog, Role, RoleGroup, SalaryStructure, Shift,
+    User,
 )
 from app.permissions import ALL_CODES
 from app.services.attendance import recompute_records
@@ -25,7 +26,8 @@ def _role_permissions(name: str) -> list[str]:
             "document.view", "document.manage", "document.hr",
             "shift.view", "shift.manage", "attendance.view", "attendance.manage",
             "device.view", "report.view", "report.export", "leave.view",
-            "leave.manage", "leave.approve", "access.view", "self.portal",
+            "leave.manage", "leave.approve", "leave.verify", "leave.quota.manage",
+            "access.view", "self.portal",
         ]
     if name == "Payroll Officer":
         return [
@@ -36,7 +38,7 @@ def _role_permissions(name: str) -> list[str]:
     if name == "Manager":
         return [
             "dashboard.view", "employee.view", "attendance.view", "report.view",
-            "leave.view", "leave.approve", "self.portal",
+            "leave.view", "leave.approve", "leave.manager_approve", "self.portal",
         ]
     return [
         "dashboard.view", "self.portal", "attendance.view", "payslip.view",
@@ -100,7 +102,7 @@ USERS_SEED = [
     ("admin", "admin123", "System Administrator", "Admin", ["Full Access"], None),
     ("hr", "hr123", "Priya Sharma", "HR Manager", [], None),
     ("payroll", "payroll123", "Anil Mehta", "Payroll Officer", [], None),
-    ("manager", "manager123", "Sneha Iyer", "Manager", [], None),
+    ("manager", "manager123", "Sneha Iyer", "Manager", [], "EMP008"),
     ("employee", "emp123", "Aarav Sharma", "Employee", [], "EMP001"),
 ]
 
@@ -205,6 +207,11 @@ def _seed(db: Session) -> None:
             other_deductions=[{"name": "Labour Welfare Fund", "amount": 50}],
         ))
 
+    # Demo manager (Sneha Iyer, EMP008) has direct reports so the manager
+    # approval stage can be exercised immediately.
+    for code in ("EMP001", "EMP002", "EMP003", "EMP004"):
+        employees[code].manager_id = employees["EMP008"].id
+
     for username, password, full_name, role_name, group_names, emp_code in USERS_SEED:
         user = User(
             username=username,
@@ -219,10 +226,22 @@ def _seed(db: Session) -> None:
         user.groups = [groups[g] for g in group_names]
         db.add(user)
 
-    for name in ("Casual Leave", "Sick Leave", "Earned Leave", "Unpaid Leave"):
-        db.add(LeaveType(
-            name=name, is_paid=(name != "Unpaid Leave"),
-            max_days_per_year=12 if name != "Unpaid Leave" else 30,
+    leave_types = {}
+    for name, code, quota, paid in (
+        ("Casual Leave", "CL", 12, True),
+        ("Sick Leave", "SL", 12, True),
+        ("Earned Leave", "EL", 18, True),
+        ("Restricted Holiday", "RH", 2, True),
+        ("Loss of Pay", "LOP", 0, False),
+    ):
+        item = LeaveType(name=name, code=code, is_paid=paid, max_days_per_year=quota)
+        db.add(item)
+        leave_types[code] = item
+    db.flush()
+    for code, quota in (("CL", 12), ("SL", 12), ("EL", 18), ("RH", 2), ("LOP", 0)):
+        db.add(LeaveQuota(
+            scope="global", scope_value="ALL", leave_type_id=leave_types[code].id,
+            year=date.today().year, days=quota,
         ))
 
     year = date.today().year

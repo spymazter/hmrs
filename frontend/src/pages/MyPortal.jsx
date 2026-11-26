@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  CalendarDays, Download, FileText, Pencil, Trash2, Upload, UserCircle2, Wallet,
+  CalendarDays, Download, FileText, Pencil, Plus, Trash2, Upload, UserCircle2, Wallet,
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -22,6 +22,11 @@ export default function MyPortal() {
   const [attendance, setAttendance] = useState([])
   const [payslips, setPayslips] = useState([])
   const [documents, setDocuments] = useState([])
+  const [leaveRows, setLeaveRows] = useState([])
+  const [leaveBalances, setLeaveBalances] = useState([])
+  const [leaveTypes, setLeaveTypes] = useState([])
+  const [rhList, setRhList] = useState([])
+  const [leaveOpen, setLeaveOpen] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [from, setFrom] = useState(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10))
@@ -30,6 +35,7 @@ export default function MyPortal() {
   const [form, setForm] = useState({})
   const [kycCategory, setKycCategory] = useState(KYC_CATEGORIES[0].value)
   const [kycFile, setKycFile] = useState(null)
+  const [leaveForm, setLeaveForm] = useState({ leave_type_id: '', from_date: todayStr(), to_date: todayStr(), reason: '', is_full_day: true, restricted_holiday_id: '' })
   const [uploading, setUploading] = useState(false)
   const kycFileRef = useRef(null)
 
@@ -49,10 +55,21 @@ export default function MyPortal() {
       .catch(() => {})
   }
 
+  const loadLeaves = () => {
+    api.get('/leaves/requests').then((r) => setLeaveRows(r.data)).catch(() => {})
+    api.get('/leaves/balances').then((r) => setLeaveBalances(r.data)).catch(() => {})
+    api.get('/leave-types').then((r) => {
+      setLeaveTypes(r.data)
+      setLeaveForm((f) => ({ ...f, leave_type_id: f.leave_type_id || r.data[0]?.id || '' }))
+    }).catch(() => {})
+    api.get('/leaves/restricted-holidays').then((r) => setRhList(r.data)).catch(() => {})
+  }
+
   useEffect(() => {
     api.get('/employees/me').then((r) => setProfile(r.data)).catch((e) => setError(errorMessage(e)))
     api.get('/payroll/payslips').then((r) => setPayslips(r.data)).catch(() => {})
     loadDocuments()
+    loadLeaves()
   }, [])
 
   useEffect(() => {
@@ -123,6 +140,22 @@ export default function MyPortal() {
     } catch (err) { setError(errorMessage(err)) } finally { setUploading(false) }
   }
 
+  const applyLeave = async () => {
+    setError(''); setNotice('')
+    const selectedType = leaveTypes.find((t) => t.id === Number(leaveForm.leave_type_id))
+    try {
+      await api.post('/leaves/requests', {
+        ...leaveForm,
+        employee_id: profile?.id || user?.employee_id,
+        leave_type_id: Number(leaveForm.leave_type_id),
+        restricted_holiday_id: selectedType?.code === 'RH' ? Number(leaveForm.restricted_holiday_id) || null : null,
+      })
+      setLeaveOpen(false)
+      setNotice('Leave application submitted to your manager')
+      loadLeaves()
+    } catch (err) { setError(errorMessage(err)) }
+  }
+
   const downloadDocument = async (row) => {
     setError('')
     try {
@@ -155,6 +188,7 @@ export default function MyPortal() {
       <PageHead title="My portal" subtitle="Your profile, KYC documents, attendance and salary slips"
         actions={<>
           <button className="btn btn-outline" disabled={!payslips.length} onClick={downloadAll}><Download size={15} /> Download all slips</button>
+          <button className="btn btn-outline" disabled={!profile} onClick={() => setLeaveOpen(true)}><Plus size={15} /> Apply leave</button>
           <button className="btn btn-primary" disabled={!profile} onClick={openEdit}><Pencil size={15} /> Edit personal details</button>
         </>} />
       <Notice type="error">{error}</Notice><Notice type="success">{notice}</Notice>
@@ -246,6 +280,48 @@ export default function MyPortal() {
           </Card>
         </div>
       </div>
+
+      <Card title="My leave applications" subtitle="Applied → manager approval → HR verification → admin final approval" style={{ marginTop: 16 }}>
+        <DataTable rows={leaveBalances} emptyText="No leave balances available" columns={[
+          { label: 'Leave', render: (r) => <span className="strong">{r.leave_type_code || r.leave_type_name}</span> },
+          { label: 'Quota', render: (r) => r.quota },
+          { label: 'Used', render: (r) => r.used },
+          { label: 'Pending', render: (r) => r.pending },
+          { label: 'Balance', render: (r) => <span className="strong">{r.remaining}</span> },
+        ]} />
+        <div style={{ marginTop: 14 }}>
+          <DataTable rows={leaveRows} emptyText="You have not applied for leave yet" columns={[
+            { label: 'Leave', render: (r) => r.leave_type_name },
+            { label: 'From', render: (r) => r.from_date },
+            { label: 'To', render: (r) => r.to_date },
+            { label: 'Reason', render: (r) => r.reason || '—' },
+            { label: 'Status', render: (r) => <Badge status={r.status} /> },
+          ]} />
+        </div>
+      </Card>
+
+      <Modal open={leaveOpen} onClose={() => setLeaveOpen(false)} title="Apply for leave" width={620}
+        footer={<>
+          <button className="btn btn-outline" onClick={() => setLeaveOpen(false)}>Cancel</button>
+          <button className="btn btn-primary" onClick={applyLeave}>Submit application</button>
+        </>}>
+        <div className="form-grid">
+          <Field label="Leave type" full><SearchableSelect value={leaveForm.leave_type_id}
+            onChange={(v) => setLeaveForm({ ...leaveForm, leave_type_id: v, restricted_holiday_id: '' })}
+            options={leaveTypes.map((t) => ({ value: t.id, label: `${t.code ? `${t.code} — ` : ''}${t.name}` }))}
+            placeholder="Select leave type" clearable={false} /></Field>
+          {leaveTypes.find((t) => t.id === Number(leaveForm.leave_type_id))?.code === 'RH' && <Field label="Restricted holiday" full>
+            <SearchableSelect value={leaveForm.restricted_holiday_id} onChange={(v) => setLeaveForm({ ...leaveForm, restricted_holiday_id: v })}
+              options={rhList.map((h) => ({ value: h.id, label: `${h.holiday_date} — ${h.name}` }))}
+              placeholder="Select from HR list" clearable={false} />
+          </Field>}
+          <Field label="From date"><input type="date" value={leaveForm.from_date} onChange={(e) => setLeaveForm({ ...leaveForm, from_date: e.target.value })} /></Field>
+          <Field label="To date"><input type="date" value={leaveForm.to_date} onChange={(e) => setLeaveForm({ ...leaveForm, to_date: e.target.value })} /></Field>
+          <Field label="Duration"><SearchableSelect value={leaveForm.is_full_day} onChange={(v) => setLeaveForm({ ...leaveForm, is_full_day: v })}
+            options={[{ value: true, label: 'Full day' }, { value: false, label: 'Half day' }]} clearable={false} /></Field>
+          <Field label="Reason" full><textarea rows="3" value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} /></Field>
+        </div>
+      </Modal>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit personal details" width={720}
         footer={<>

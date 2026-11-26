@@ -453,6 +453,7 @@ class AttendanceListOut(BaseModel):
 # Leaves --------------------------------------------------------------------
 class LeaveTypeBase(BaseModel):
     name: str
+    code: Optional[str] = None
     is_paid: bool = True
     max_days_per_year: int = 12
     color: str = "#0ea5e9"
@@ -472,6 +473,8 @@ class LeaveRequestBase(BaseModel):
     from_date: date
     to_date: date
     reason: Optional[str] = None
+    is_full_day: bool = True
+    restricted_holiday_id: Optional[int] = None
 
 
 class LeaveRequestCreate(LeaveRequestBase):
@@ -483,11 +486,103 @@ class LeaveRequestOut(ORMBase, LeaveRequestBase):
     status: str
     created_at: Optional[datetime] = None
     employee_name: Optional[str] = None
+    employee_code: Optional[str] = None
     leave_type_name: Optional[str] = None
+    leave_type_code: Optional[str] = None
+    days: Optional[int] = None
+    manager_approved_by: Optional[int] = None
+    manager_approved_at: Optional[datetime] = None
+    hr_verified_by: Optional[int] = None
+    hr_verified_at: Optional[datetime] = None
+    verification_notes: Optional[str] = None
+    final_approved_by: Optional[int] = None
+    final_approved_at: Optional[datetime] = None
+    rejected_by: Optional[int] = None
+    reject_reason: Optional[str] = None
+    decided_at: Optional[datetime] = None
 
 
 class LeaveAction(BaseModel):
-    status: str  # approved / rejected
+    status: str  # approved / rejected (legacy compatibility)
+
+
+class LeaveRejectIn(BaseModel):
+    reason: str
+
+
+class LeaveVerifyIn(BaseModel):
+    notes: Optional[str] = None
+
+
+class LeaveQuotaIn(BaseModel):
+    employee_id: Optional[int] = None
+    leave_type_id: int
+    year: int
+    days: float
+
+
+class LeaveQuotaOut(ORMBase):
+    id: int
+    scope: str
+    scope_value: str
+    employee_id: Optional[int] = None
+    employee_code: Optional[str] = None
+    employee_name: Optional[str] = None
+    leave_type_id: int
+    leave_type_name: Optional[str] = None
+    leave_type_code: Optional[str] = None
+    year: int
+    days: float
+    updated_at: Optional[datetime] = None
+
+
+class LeaveBalanceOut(BaseModel):
+    employee_id: int
+    employee_code: Optional[str] = None
+    employee_name: Optional[str] = None
+    year: int
+    leave_type_id: int
+    leave_type_name: Optional[str] = None
+    leave_type_code: Optional[str] = None
+    is_paid: bool = True
+    quota: float
+    used: float
+    pending: float
+    remaining: float
+    source: str = "default"
+
+
+class RestrictedHolidayIn(BaseModel):
+    year: int
+    holiday_date: date
+    name: str
+    reason: Optional[str] = None
+    is_active: bool = True
+
+
+class RestrictedHolidayOut(ORMBase):
+    id: int
+    year: int
+    holiday_date: date
+    name: str
+    reason: Optional[str] = None
+    is_active: bool = True
+
+
+class CompOffOut(ORMBase):
+    id: int
+    employee_id: int
+    employee_name: Optional[str] = None
+    employee_code: Optional[str] = None
+    work_date: date
+    days: float
+    status: str
+    source: str = "manual"
+    rule: Optional[str] = None
+    extra_hours: float = 0
+    extra_hours_balance: float = 0
+    reason: Optional[str] = None
+    expiry_date: Optional[date] = None
 
 
 class HolidayCreate(BaseModel):
@@ -588,6 +683,8 @@ class PayslipOut(ORMBase):
     working_days: int
     days_present: float
     paid_days: float
+    lop_days: float = 0
+    lop_amount: float = 0
     basic: float
     hra: float
     allowances: float

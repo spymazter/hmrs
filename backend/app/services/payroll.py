@@ -91,15 +91,21 @@ def process_payroll(
         .all()
     )
     paid_leave_days: dict[int, set] = {}
+    lop_days: dict[int, set] = {}
     for leave in leaves:
-        if not (leave.leave_type and leave.leave_type.is_paid):
-            continue
         start = max(leave.from_date, period.start_date)
         end = min(leave.to_date, period.end_date)
+        code = (leave.leave_type.code if leave.leave_type else "") or ""
+        is_lop = code.upper() == "LOP" or (
+            not code and leave.leave_type and not leave.leave_type.is_paid
+        )
         current = start
         while current <= end:
             if current.weekday() < 5:
-                paid_leave_days.setdefault(leave.employee_id, set()).add(current)
+                if is_lop and leave.is_full_day is not False:
+                    lop_days.setdefault(leave.employee_id, set()).add(current)
+                elif leave.leave_type and leave.leave_type.is_paid:
+                    paid_leave_days.setdefault(leave.employee_id, set()).add(current)
             current += timedelta(days=1)
 
     removed = 0
@@ -129,6 +135,16 @@ def process_payroll(
             raise ValueError(f"Salary structure missing for {emp.employee_code}")
         factor = paid_days / working_days if working_days else 0
 
+        # LOP is reflected through paid_days (so it is never deducted twice).
+        # Store the corresponding money value as a transparent payslip line item.
+        full_gross = (
+            (structure.basic or 0) + (structure.hra or 0)
+            + (structure.special_allowance or 0) + (structure.conveyance or 0)
+            + sum((item.get("amount") or 0) for item in (structure.other_earnings or []))
+        )
+        emp_lop_days = len(lop_days.get(emp.id, set()))
+        lop_amount = round2(full_gross * emp_lop_days / working_days)
+
         basic = round2((structure.basic or 0) * factor)
         hra = round2((structure.hra or 0) * factor)
         other_earnings = round2(
@@ -153,6 +169,8 @@ def process_payroll(
             working_days=working_days,
             days_present=round2(days_present),
             paid_days=paid_days,
+            lop_days=round2(emp_lop_days),
+            lop_amount=lop_amount,
             basic=basic, hra=hra, allowances=other_earnings, gross_salary=gross,
             provident_fund=pf, esi=esi, professional_tax=professional_tax,
             income_tax=income_tax, other_deductions=other_deductions,

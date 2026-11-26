@@ -355,10 +355,15 @@ class AttendanceData:
                 CompOff.employee_id.in_(employee_ids),
                 CompOff.work_date >= start,
                 CompOff.work_date <= end,
-            ).all()
+                (CompOff.days or 0) > 0,
+            )
+            .order_by(CompOff.days.desc())
+            .all()
         )
         for row in rows:
-            result[(row.employee_id, row.work_date)] = row
+            # Manual and automatic rows may share a work date; keep the largest
+            # balance for status calculation. Zero-day ledger rows are ignored.
+            result.setdefault((row.employee_id, row.work_date), row)
         return result
 
     def _load_regularizations(self, start: date, end: date, employee_ids: list[int]) -> dict[tuple[int, date], Regularization]:
