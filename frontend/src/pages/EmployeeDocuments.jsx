@@ -27,6 +27,7 @@ const REQUIRED_DOCUMENTS = [
   { value: 'nominee_aadhaar', label: 'Nominee Aadhaar' },
   { value: 'antecedent_verification', label: 'Antecedent verification' },
 ]
+const EMPLOYEE_UPLOAD_DOCS = REQUIRED_DOCUMENTS.filter((doc) => KYC_VALUES.includes(doc.value))
 const ROSTER_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
   { value: 'complete', label: 'Complete' },
@@ -179,6 +180,14 @@ export default function EmployeeDocuments() {
 
   const completeCount = roster.filter((row) => row.complete).length
 
+  const selfEmployeeId = selfEmployee?.id || user?.employee_id
+  const employeeUploaded = documentsByEmployee[selfEmployeeId] || new Set()
+  const employeeChecklist = EMPLOYEE_UPLOAD_DOCS.map((doc) => ({
+    ...doc,
+    uploaded: employeeUploaded.has(doc.value),
+  }))
+  const missingEmployeeDocs = employeeChecklist.filter((doc) => !doc.uploaded)
+
   const download = async (row) => {
     if (!row) return
     setError('')
@@ -214,16 +223,17 @@ export default function EmployeeDocuments() {
     && row.uploaded_by === user?.id
   )
 
-  const openUpload = () => {
+  const openUpload = (category) => {
     setForm({
       employee_id: canManage ? '' : String(user?.employee_id || ''),
-      category: canManage ? 'appointment_order' : 'employee_pan',
+      category: category || (canManage ? 'appointment_order' : 'employee_pan'),
     })
+    setError('')
     setModal(true)
   }
 
-  const openUploadFor = (employee) => {
-    setForm({ employee_id: String(employee.id), category: 'appointment_order' })
+  const openUploadFor = (employee, category = 'appointment_order') => {
+    setForm({ employee_id: String(employee.id), category })
     setError('')
     setModal(true)
   }
@@ -357,19 +367,63 @@ export default function EmployeeDocuments() {
     },
   ]
 
+  const employeeChecklistColumns = [
+    {
+      label: 'Document',
+      render: (row) => <strong>{row.label}</strong>,
+    },
+    {
+      label: 'Status',
+      render: (row) => (
+        <Badge status={row.uploaded ? 'active' : 'pending'}>
+          {row.uploaded ? 'Uploaded' : 'Missing'}
+        </Badge>
+      ),
+    },
+    {
+      label: 'Action',
+      className: 'text-right',
+      render: (row) => row.uploaded ? (
+        <button className="btn btn-outline btn-sm" onClick={() => { setSearch(''); setCategory(row.value) }}>
+          <Eye size={14} /> View
+        </button>
+      ) : (
+        <button className="btn btn-primary btn-sm" onClick={() => openUpload(row.value)}>
+          <Upload size={14} /> Upload
+        </button>
+      ),
+    },
+  ]
+
   return (
     <>
       <PageHead
         title="Employee documents"
-        subtitle={isHR ? 'Employee-wise document status and all uploaded files' : 'Your KYC uploads and HR documents, all in one place'}
+        subtitle={isHR ? 'Employee-wise document status and all uploaded files' : 'Your document checklist and uploaded files'}
         actions={canUpload && (
-          <button className="btn btn-primary" onClick={openUpload}>
+          <button className="btn btn-primary" onClick={() => openUpload()}>
             <Upload size={15} /> Upload document
           </button>
         )}
       />
       <Notice type="error">{error}</Notice>
       <Notice type="success">{notice}</Notice>
+
+      {!isHR && canSelfUpload && (
+        <div style={{ marginBottom: 16 }}>
+          <Card
+            title={`Your document checklist (${employeeChecklist.length - missingEmployeeDocs.length}/${employeeChecklist.length} uploaded)`}
+            subtitle="Upload the missing items below. Appointment order, medical fitness and antecedent verification are handled by HR."
+          >
+            <DataTable
+              columns={employeeChecklistColumns}
+              rows={employeeChecklist}
+              loading={loading}
+              emptyText="No documents are required for your profile"
+            />
+          </Card>
+        </div>
+      )}
 
       {isHR && (
         <div style={{ marginBottom: 16 }}>
