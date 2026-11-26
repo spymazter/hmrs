@@ -18,6 +18,20 @@ const ALL_CATEGORIES = [
 ]
 const KYC_VALUES = ['employee_pan', 'employee_aadhaar', 'nominee_pan', 'nominee_aadhaar']
 const EMPLOYEE_CATEGORIES = ALL_CATEGORIES.filter((c) => KYC_VALUES.includes(c.value))
+const REQUIRED_DOCUMENTS = [
+  { value: 'appointment_order', label: 'Appointment order' },
+  { value: 'medical_fitness', label: 'Medical fitness' },
+  { value: 'employee_pan', label: 'Employee PAN' },
+  { value: 'employee_aadhaar', label: 'Employee Aadhaar' },
+  { value: 'nominee_pan', label: 'Nominee PAN' },
+  { value: 'nominee_aadhaar', label: 'Nominee Aadhaar' },
+  { value: 'antecedent_verification', label: 'Antecedent verification' },
+]
+const ROSTER_STATUS_OPTIONS = [
+  { value: '', label: 'All statuses' },
+  { value: 'complete', label: 'Complete' },
+  { value: 'pending', label: 'Pending' },
+]
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png']
 
 function isImage(row) {
@@ -47,6 +61,8 @@ export default function EmployeeDocuments() {
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
+  const [rosterSearch, setRosterSearch] = useState('')
+  const [rosterStatus, setRosterStatus] = useState('')
   const [view, setView] = useState('tiles')
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState({ employee_id: '', category: 'employee_pan' })
@@ -59,9 +75,7 @@ export default function EmployeeDocuments() {
     setLoading(true)
     setError('')
     try {
-      const params = {}
-      if (category) params.category = category
-      const response = await api.get('/employee-documents', { params })
+      const response = await api.get('/employee-documents')
       setRows(response.data)
     } catch (err) {
       setError(errorMessage(err))
@@ -70,18 +84,35 @@ export default function EmployeeDocuments() {
     }
   }
 
-  useEffect(() => { load() }, [category])
+  useEffect(() => { load() }, [])
 
   useEffect(() => {
-    if (isHR) {
-      api.get('/employees?limit=500')
-        .then((r) => setEmployees(r.data.items || []))
-        .catch(() => {})
-    } else if (user?.employee_id) {
-      api.get('/employees/me')
-        .then((r) => setSelfEmployee(r.data))
-        .catch(() => {})
+    if (!isHR) {
+      if (user?.employee_id) {
+        api.get('/employees/me')
+          .then((r) => setSelfEmployee(r.data))
+          .catch(() => {})
+      }
+      return undefined
     }
+
+    let active = true
+    const loadEmployees = async () => {
+      const all = []
+      let skip = 0
+      let total = 0
+      for (;;) {
+        const response = await api.get('/employees', { params: { skip, limit: 500 } })
+        const items = response.data.items || []
+        total = response.data.total || 0
+        all.push(...items)
+        skip += items.length
+        if (!items.length || skip >= total) break
+      }
+      if (active) setEmployees(all)
+    }
+    loadEmployees().catch(() => {})
+    return () => { active = false }
   }, [isHR, user?.employee_id])
 
   useEffect(() => {
@@ -107,11 +138,46 @@ export default function EmployeeDocuments() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((row) =>
-      [row.employee_code, row.employee_name, row.original_filename, row.category_label]
-        .some((value) => String(value || '').toLowerCase().includes(q)))
-  }, [rows, search])
+    return rows.filter((row) => {
+      if (category && row.category !== category) return false
+      if (!q) return true
+      return [row.employee_code, row.employee_name, row.original_filename, row.category_label]
+        .some((value) => String(value || '').toLowerCase().includes(q))
+    })
+  }, [rows, search, category])
+
+  const documentsByEmployee = useMemo(() => {
+    const map = {}
+    rows.forEach((row) => {
+      if (!map[row.employee_id]) map[row.employee_id] = new Set()
+      map[row.employee_id].add(row.category)
+    })
+    return map
+  }, [rows])
+
+  const roster = useMemo(() => employees.map((employee) => {
+    const uploaded = documentsByEmployee[employee.id] || new Set()
+    const missing = REQUIRED_DOCUMENTS.filter((doc) => !uploaded.has(doc.value))
+    return {
+      ...employee,
+      uploaded_count: REQUIRED_DOCUMENTS.length - missing.length,
+      missing_labels: missing.map((doc) => doc.label),
+      complete: missing.length === 0,
+    }
+  }), [employees, documentsByEmployee])
+
+  const filteredRoster = useMemo(() => {
+    const q = rosterSearch.trim().toLowerCase()
+    return roster.filter((row) => {
+      if (rosterStatus === 'complete' && !row.complete) return false
+      if (rosterStatus === 'pending' && row.complete) return false
+      if (!q) return true
+      return [row.employee_code, row.full_name, row.first_name, row.last_name]
+        .some((value) => String(value || '').toLowerCase().includes(q))
+    })
+  }, [roster, rosterSearch, rosterStatus])
+
+  const completeCount = roster.filter((row) => row.complete).length
 
   const download = async (row) => {
     if (!row) return
@@ -153,6 +219,12 @@ export default function EmployeeDocuments() {
       employee_id: canManage ? '' : String(user?.employee_id || ''),
       category: canManage ? 'appointment_order' : 'employee_pan',
     })
+    setModal(true)
+  }
+
+  const openUploadFor = (employee) => {
+    setForm({ employee_id: String(employee.id), category: 'appointment_order' })
+    setError('')
     setModal(true)
   }
 
@@ -246,11 +318,50 @@ export default function EmployeeDocuments() {
     ? ALL_CATEGORIES
     : ALL_CATEGORIES.filter((c) => c.value !== 'antecedent_verification')
 
+  const rosterColumns = [
+    {
+      label: 'Employee',
+      render: (row) => (
+        <><strong>{row.employee_code}</strong><div className="muted">{row.full_name || `${row.first_name} ${row.last_name}`.trim()}</div></>
+      ),
+    },
+    {
+      label: 'Uploaded',
+      render: (row) => <><span className="strong">{row.uploaded_count}/{REQUIRED_DOCUMENTS.length}</span><div className="muted">document types</div></>,
+    },
+    {
+      label: 'Status',
+      render: (row) => <Badge status={row.complete ? 'active' : 'pending'}>{row.complete ? 'Complete' : 'Pending'}</Badge>,
+    },
+    {
+      label: 'Missing documents',
+      render: (row) => row.complete
+        ? <span className="muted">—</span>
+        : <div>{row.missing_labels.map((label) => <span className="chip" key={label}>{label}</span>)}</div>,
+    },
+    {
+      label: 'Actions',
+      className: 'text-right',
+      render: (row) => (
+        <span style={{ display: 'inline-flex', gap: 6 }}>
+          <button className="btn btn-outline btn-sm" onClick={() => { setSearch(row.employee_code); setCategory('') }}>
+            <Eye size={14} /> View files
+          </button>
+          {canManage && (
+            <button className="btn btn-primary btn-sm" onClick={() => openUploadFor(row)}>
+              <Upload size={14} /> Upload
+            </button>
+          )}
+        </span>
+      ),
+    },
+  ]
+
   return (
     <>
       <PageHead
         title="Employee documents"
-        subtitle="Your KYC uploads and HR documents, all in one place"
+        subtitle={isHR ? 'Employee-wise document status and all uploaded files' : 'Your KYC uploads and HR documents, all in one place'}
         actions={canUpload && (
           <button className="btn btn-primary" onClick={openUpload}>
             <Upload size={15} /> Upload document
@@ -259,6 +370,33 @@ export default function EmployeeDocuments() {
       />
       <Notice type="error">{error}</Notice>
       <Notice type="success">{notice}</Notice>
+
+      {isHR && (
+        <div style={{ marginBottom: 16 }}>
+          <Card
+            title={`Employee document status (${completeCount}/${roster.length} complete)`}
+            subtitle="Checklist covers all 7 document types, including the HR-only antecedent verification form"
+          >
+            <div className="toolbar">
+              <input value={rosterSearch} onChange={(e) => setRosterSearch(e.target.value)} placeholder="Search employee name or code…" style={{ width: 260 }} />
+              <SearchableSelect
+                value={rosterStatus}
+                onChange={setRosterStatus}
+                options={ROSTER_STATUS_OPTIONS}
+                placeholder="All statuses"
+                style={{ width: 200 }}
+              />
+            </div>
+            <DataTable
+              columns={rosterColumns}
+              rows={filteredRoster}
+              loading={loading}
+              emptyText="No employees match your filters"
+            />
+          </Card>
+        </div>
+      )}
+
       <Card>
         <div className="toolbar">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee or file…" style={{ width: 260 }} />
