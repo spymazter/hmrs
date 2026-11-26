@@ -601,6 +601,178 @@ def _leave_od_balance(ctx: ReportContext):
 
 
 # ---------------------------------------------------------------------------
+# E. Attendance advanced reports
+# ---------------------------------------------------------------------------
+def _ordered_calculations(ctx: ReportContext) -> list[DayCalculation]:
+    return sorted(ctx.calculations, key=lambda c: (c.date, c.employee_code, c.employee_id))
+
+
+def _late_punch(ctx: ReportContext):
+    """First punch after the scheduled shift start, including within-grace punches."""
+    rows = []
+    for calc in _ordered_calculations(ctx):
+        if not calc.first_in:
+            continue
+        shift = ctx.shift(calc)
+        if not shift:
+            continue
+        start, _ = ctx.engine.shift_window(date.fromisoformat(calc.date), shift)
+        check_in = _clock_datetime(calc.first_in, date.fromisoformat(calc.date))
+        if not check_in or check_in <= start:
+            continue
+        delay = int((check_in - start).total_seconds() // 60)
+        grace = shift.grace_minutes or 0
+        rows.append({
+            "date": calc.date,
+            "employee_code": calc.employee_code,
+            "employee_name": calc.employee_name,
+            "department": calc.department,
+            "shift": calc.shift,
+            "shift_start": shift.start_time.strftime("%H:%M"),
+            "first_punch": calc.first_in,
+            "delay_minutes": delay,
+            "grace_minutes": grace,
+            "counted_late": "Yes" if delay > grace else "No",
+            "status_code": calc.status_code,
+        })
+    rows.sort(key=lambda r: (-r["delay_minutes"], r["date"], r["employee_code"]))
+    summary = {
+        "late_punches": len(rows),
+        "over_grace": sum(1 for row in rows if row["counted_late"] == "Yes"),
+    }
+    return rows, summary
+
+
+def _late_arrivals(ctx: ReportContext):
+    """First punch beyond the shift grace — the same definition as the Attendance page."""
+    rows = []
+    for calc in _ordered_calculations(ctx):
+        if calc.late_by <= 0:
+            continue
+        shift = ctx.shift(calc)
+        rows.append({
+            "date": calc.date,
+            "employee_code": calc.employee_code,
+            "employee_name": calc.employee_name,
+            "department": calc.department,
+            "shift": calc.shift,
+            "scheduled_start": shift.start_time.strftime("%H:%M") if shift else "—",
+            "first_in": calc.first_in,
+            "late_minutes": calc.late_by,
+            "grace_minutes": (shift.grace_minutes or 0) if shift else 0,
+            "net_hours": calc.net_hours,
+            "status_code": calc.status_code,
+        })
+    total = sum(row["late_minutes"] for row in rows)
+    summary = {
+        "late_arrivals": len(rows),
+        "total_late_minutes": total,
+        "average_late_minutes": round2(total / len(rows)) if rows else 0,
+    }
+    return rows, summary
+
+
+def _early_departure(ctx: ReportContext):
+    rows = []
+    for calc in _ordered_calculations(ctx):
+        if calc.early_exit_by <= 0:
+            continue
+        shift = ctx.shift(calc)
+        rows.append({
+            "date": calc.date,
+            "employee_code": calc.employee_code,
+            "employee_name": calc.employee_name,
+            "department": calc.department,
+            "shift": calc.shift,
+            "scheduled_end": shift.end_time.strftime("%H:%M") if shift else "—",
+            "last_out": calc.last_out,
+            "early_minutes": calc.early_exit_by,
+            "net_hours": calc.net_hours,
+            "status_code": calc.status_code,
+        })
+    total = sum(row["early_minutes"] for row in rows)
+    summary = {
+        "early_departures": len(rows),
+        "total_early_minutes": total,
+        "average_early_minutes": round2(total / len(rows)) if rows else 0,
+    }
+    return rows, summary
+
+
+def _missed_punches(ctx: ReportContext):
+    rows = []
+    for calc in _ordered_calculations(ctx):
+        if calc.status != "missed_punch" and not (calc.punch_count > 0 and calc.pair_count == 0):
+            continue
+        rows.append({
+            "date": calc.date,
+            "employee_code": calc.employee_code,
+            "employee_name": calc.employee_name,
+            "department": calc.department,
+            "shift": calc.shift,
+            "punch_count": calc.punch_count,
+            "pair_count": calc.pair_count,
+            "all_punches": calc.all_punches,
+            "issue": "Single punch" if calc.punch_count == 1 else "Incomplete pair",
+            "first_in": calc.first_in,
+            "last_out": calc.last_out,
+            "status_code": calc.status_code,
+            "remarks": calc.remarks or "Needs regularization",
+        })
+    summary = {
+        "missed_punches": len(rows),
+        "single_punches": sum(1 for row in rows if row["punch_count"] == 1),
+    }
+    return rows, summary
+
+
+def _lunch_break(ctx: ReportContext):
+    """Four-punch lunch sequence with actual gap against the configured duration."""
+    rows = []
+    for calc in _ordered_calculations(ctx):
+        punches = calc.raw_punches
+        if len(punches) < 4:
+            continue
+        job_in, lunch_out, lunch_in, exit_punch = punches[:4]
+        if lunch_out.punch_time >= lunch_in.punch_time:
+            continue
+        actual = int((lunch_in.punch_time - lunch_out.punch_time).total_seconds() // 60)
+        expected = ctx.engine.lunch_break.effective_minutes(ctx.shift(calc))
+        variance = actual - expected if expected else 0
+        if not expected:
+            flag = "Not configured"
+        elif abs(variance) <= 5:
+            flag = "As configured"
+        elif variance < 0:
+            flag = "Short break"
+        else:
+            flag = "Long break"
+        rows.append({
+            "date": calc.date,
+            "employee_code": calc.employee_code,
+            "employee_name": calc.employee_name,
+            "department": calc.department,
+            "shift": calc.shift,
+            "job_in": job_in.punch_time.strftime("%H:%M"),
+            "lunch_out": lunch_out.punch_time.strftime("%H:%M"),
+            "lunch_in": lunch_in.punch_time.strftime("%H:%M"),
+            "exit_time": exit_punch.punch_time.strftime("%H:%M"),
+            "punch_sequence": ", ".join(p.punch_type for p in punches[:4]),
+            "actual_minutes": actual,
+            "configured_minutes": expected,
+            "variance_minutes": variance,
+            "flag": flag,
+        })
+    summary = {
+        "lunch_break_days": len(rows),
+        "as_configured": sum(1 for row in rows if row["flag"] == "As configured"),
+        "short_breaks": sum(1 for row in rows if row["flag"] == "Short break"),
+        "long_breaks": sum(1 for row in rows if row["flag"] == "Long break"),
+    }
+    return rows, summary
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 REPORTS: list[ReportDefinition] = [
@@ -737,6 +909,56 @@ REPORTS: list[ReportDefinition] = [
          ("accrued", "Accrued"), ("availed", "Availed"), ("closing_balance", "Closing"),
          ("od_days", "OD days"), ("od_hours", "OD hours"), ("status", "Status")],
         _leave_od_balance,
+    ),
+    ReportDefinition(
+        "att_late_punch", "Late punch", "Attendance Advanced reports",
+        "First punch after the scheduled shift start, including punches inside the grace window.",
+        [("date", "Date"), ("employee_code", "Emp code"), ("employee_name", "Name"),
+         ("department", "Department"), ("shift", "Shift"), ("shift_start", "Shift start"),
+         ("first_punch", "First punch"), ("delay_minutes", "Delay (min)"),
+         ("grace_minutes", "Grace (min)"), ("counted_late", "Counted late"),
+         ("status_code", "Status")],
+        _late_punch,
+    ),
+    ReportDefinition(
+        "att_late_arrivals", "Late arrivals", "Attendance Advanced reports",
+        "First punch beyond the shift grace, matching the Attendance page's Late arrivals filter.",
+        [("date", "Date"), ("employee_code", "Emp code"), ("employee_name", "Name"),
+         ("department", "Department"), ("shift", "Shift"), ("scheduled_start", "Scheduled start"),
+         ("first_in", "First in"), ("late_minutes", "Late (min)"),
+         ("grace_minutes", "Grace (min)"), ("net_hours", "Net hours"),
+         ("status_code", "Status")],
+        _late_arrivals,
+    ),
+    ReportDefinition(
+        "att_early_departure", "Early departure", "Attendance Advanced reports",
+        "Last punch before the scheduled shift end minus the early-out grace.",
+        [("date", "Date"), ("employee_code", "Emp code"), ("employee_name", "Name"),
+         ("department", "Department"), ("shift", "Shift"), ("scheduled_end", "Scheduled end"),
+         ("last_out", "Last out"), ("early_minutes", "Early (min)"),
+         ("net_hours", "Net hours"), ("status_code", "Status")],
+        _early_departure,
+    ),
+    ReportDefinition(
+        "att_missed_punches", "Missed Punches", "Attendance Advanced reports",
+        "Single or incomplete punch pairs that need HR regularization.",
+        [("date", "Date"), ("employee_code", "Emp code"), ("employee_name", "Name"),
+         ("department", "Department"), ("shift", "Shift"), ("issue", "Issue"),
+         ("punch_count", "Punches"), ("pair_count", "Pairs"), ("all_punches", "All punches"),
+         ("first_in", "First in"), ("last_out", "Last out"), ("status_code", "Status"),
+         ("remarks", "Remarks")],
+        _missed_punches,
+    ),
+    ReportDefinition(
+        "att_lunch_break", "Lunch Break", "Attendance Advanced reports",
+        "Four-punch lunch sequence showing actual lunch gap against the configured duration.",
+        [("date", "Date"), ("employee_code", "Emp code"), ("employee_name", "Name"),
+         ("department", "Department"), ("shift", "Shift"), ("job_in", "Job in"),
+         ("lunch_out", "Lunch out"), ("lunch_in", "Lunch in"), ("exit_time", "Exit"),
+         ("punch_sequence", "Punch sequence"), ("actual_minutes", "Actual (min)"),
+         ("configured_minutes", "Configured (min)"), ("variance_minutes", "Variance (min)"),
+         ("flag", "Flag")],
+        _lunch_break,
     ),
 ]
 

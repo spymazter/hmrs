@@ -20,9 +20,13 @@ def _payload(db, report_id):
     return build_report(db, report_id, START, END, EngineFilters())
 
 
-def test_all_fourteen_reports_are_registered():
-    assert len(REPORT_MAP) == 14
-    assert len(report_metadata()) == 14
+def test_all_nineteen_reports_are_registered():
+    assert len(REPORT_MAP) == 19
+    assert len(report_metadata()) == 19
+    advanced = [r for r in report_metadata() if r["category"] == "Attendance Advanced reports"]
+    assert [r["name"] for r in advanced] == [
+        "Late punch", "Late arrivals", "Early departure", "Missed Punches", "Lunch Break",
+    ]
 
 
 def test_every_report_builder_runs_on_sample_data():
@@ -115,6 +119,35 @@ def test_exception_reports_detect_cases():
 
         deviations = _payload(db, "shift_deviation")
         assert any(r["employee_code"] == "SMP005" for r in deviations["rows"])
+    finally:
+        db.close()
+
+
+def test_attendance_advanced_reports():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        late_punch = _payload(db, "att_late_punch")
+        assert all(r["delay_minutes"] > 0 for r in late_punch["rows"])
+        assert "over_grace" in late_punch["summary"]
+
+        late = _payload(db, "att_late_arrivals")
+        assert all(r["late_minutes"] > 0 for r in late["rows"])
+        assert any(r["employee_code"] == "SMP005" for r in late["rows"])
+
+        early = _payload(db, "att_early_departure")
+        assert all(r["early_minutes"] > 0 for r in early["rows"])
+
+        missed = _payload(db, "att_missed_punches")
+        assert all(r["punch_count"] > 0 and r["pair_count"] == 0 for r in missed["rows"])
+
+        lunch = _payload(db, "att_lunch_break")
+        assert any(r["employee_code"] == "SMP001" for r in lunch["rows"])
+        asha = next(r for r in lunch["rows"] if r["employee_code"] == "SMP001")
+        assert asha["lunch_out"] == "13:00"
+        assert asha["lunch_in"] == "14:00"
+        assert asha["actual_minutes"] == 60
+        assert asha["flag"] == "As configured"
     finally:
         db.close()
 
