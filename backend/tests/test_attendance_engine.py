@@ -143,6 +143,57 @@ def test_repeated_in_before_first_out_uses_first_in_and_last_out():
     assert sessions[0]["out"]["time"] == "18:04:00"
 
 
+def test_night_shift_does_not_steal_next_morning_punches():
+    from datetime import datetime, time
+
+    from app.models import Shift
+    from app.services.attendance_engine import NormalizedPunch, night_window_candidates
+
+    night = Shift(name="Night", start_time=time(20, 0), end_time=time(8, 0))
+    morning = Shift(name="Morning", start_time=time(7, 30), end_time=time(16, 30))
+    stolen = [NormalizedPunch(1, 1, datetime(2026, 11, 23, 7, 40), "out")]
+    assert night_window_candidates(date(2026, 11, 22), night, stolen, morning) == []
+
+    real_night = [
+        NormalizedPunch(1, 1, datetime(2026, 11, 22, 20, 0), "in"),
+        NormalizedPunch(2, 1, datetime(2026, 11, 23, 8, 0), "out"),
+    ]
+    kept = night_window_candidates(date(2026, 11, 22), night, real_night, morning)
+    assert [p.id for p in kept] == [1, 2]
+
+
+def test_two_punches_with_same_direction_pair_as_full_day():
+    from datetime import datetime
+
+    from app.services.attendance_engine import NormalizedPunch
+
+    punches = [
+        NormalizedPunch(1, 1, datetime(2026, 11, 25, 7, 33), "in"),
+        NormalizedPunch(2, 1, datetime(2026, 11, 25, 16, 31), "in"),
+    ]
+    sessions, net_hours, _ = pair_punches(punches, "strict")
+    assert net_hours == 8.97
+    assert len(sessions) == 1
+    assert sessions[0]["in"]["time"] == "07:33:00"
+    assert sessions[0]["out"]["time"] == "16:31:00"
+
+
+def test_two_punches_with_reversed_direction_pair_as_full_day():
+    from datetime import datetime
+
+    from app.services.attendance_engine import NormalizedPunch
+
+    punches = [
+        NormalizedPunch(1, 1, datetime(2026, 11, 24, 7, 34), "out"),
+        NormalizedPunch(2, 1, datetime(2026, 11, 24, 16, 41), "in"),
+    ]
+    sessions, net_hours, _ = pair_punches(punches, "strict")
+    assert net_hours == 9.12
+    assert len(sessions) == 1
+    assert sessions[0]["in"]["time"] == "07:34:00"
+    assert sessions[0]["out"]["time"] == "16:41:00"
+
+
 def test_multiple_outs_still_pair_each_session():
     from datetime import datetime
 

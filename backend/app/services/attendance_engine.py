@@ -561,6 +561,20 @@ def pair_punches(
         }] if len(punches) >= 2 else []
         return sessions, round2(seconds / 3600), 0.0
 
+    # A single visit can be recorded twice with the same direction (the user
+    # forgets to switch the device to Check Out), or with the directions
+    # reversed.  With exactly two punches — or a day where every punch has the
+    # same direction — the first punch is the arrival and the last is the exit.
+    # Without this, a full working day becomes a half day / missed punch.
+    if len(punches) >= 2 and (len(punches) == 2 or len({p.direction for p in punches}) == 1):
+        start, end = punches[0].punch_time, punches[-1].punch_time
+        seconds = max(0.0, (end - start).total_seconds())
+        sessions = [{
+            "in": punches[0].as_dict(), "out": punches[-1].as_dict(),
+            "start": start, "end": end, "minutes": seconds / 60,
+        }]
+        return sessions, round2(seconds / 3600), 0.0
+
     # Device double-punches can arrive as IN, IN, ..., OUT, OUT.  When more
     # than one IN appears before the first OUT, keep the first IN and the last
     # OUT so the full work span is preserved.
@@ -605,6 +619,32 @@ def pair_punches(
         if gap > 0:
             break_seconds += gap
     return sessions, round2(net_seconds / 3600), round2(break_seconds / 3600)
+
+
+def night_window_candidates(
+    day: date,
+    shift,
+    candidates: list[NormalizedPunch],
+    next_shift,
+) -> list[NormalizedPunch]:
+    """Keep a night shift from consuming the following day's morning punches.
+
+    A night shift's window reaches into the next morning.  If the employee did
+    not punch in during the evening portion of that window, those morning
+    punches belong to the next day's shift instead — otherwise both days end
+    up with a single punch and are reported as half days.
+    """
+    if not shift or not AttendanceEngine.is_night(shift) or not candidates:
+        return candidates
+    if any(punch.punch_time.date() == day for punch in candidates):
+        return candidates
+    if not next_shift:
+        return candidates
+    next_start, next_end = AttendanceEngine.punch_window(day + timedelta(days=1), next_shift)
+    return [
+        punch for punch in candidates
+        if not (next_start <= punch.punch_time < next_end)
+    ]
 
 
 def _overlap_minutes(start: datetime, end: datetime, window_start: datetime, window_end: datetime) -> float:
@@ -718,19 +758,25 @@ class AttendanceEngine:
             all_punches = data.punches.get(employee.id, [])
             consumed: set[int] = set()
 
-            day = employee_start
-            while day <= end:
-                if not include_future and day > today:
-                    break
-                shift = self._resolve_shift(employee, day, data)
+            days = []
+            cursor = employee_start
+            while cursor <= end and (include_future or cursor <= today):
+                days.append(cursor)
+                cursor += timedelta(days=1)
+            shifts = {day: self._resolve_shift(employee, day, data) for day in days}
+
+            for day in days:
+                shift = shifts[day]
                 window_start, window_end = self.punch_window(day, shift)
                 candidates = [
                     p for p in all_punches
                     if p.id not in consumed and window_start <= p.punch_time < window_end
                 ]
+                candidates = night_window_candidates(
+                    day, shift, candidates, shifts.get(day + timedelta(days=1))
+                )
                 consumed.update(p.id for p in candidates)
                 results.append(self._calculate_day(employee, day, shift, candidates, data))
-                day += timedelta(days=1)
 
         if self.config.sandwich_rule:
             self._apply_sandwich_rule(results)

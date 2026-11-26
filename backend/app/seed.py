@@ -120,7 +120,7 @@ def seed_database() -> None:
 
 def _recompute_history_once(db: Session) -> None:
     """Upgrade historical records to the corrected in/out pairing logic once."""
-    marker_key = "attendance_engine_v7"
+    marker_key = "attendance_engine_v9"
     if db.query(AppSetting).filter(AppSetting.key == marker_key).first():
         return
 
