@@ -110,6 +110,71 @@ def save_engine_config(db: Session, values: dict) -> EngineConfig:
     return config
 
 
+LUNCH_CONFIG_KEY = "lunch_break_config"
+LUNCH_SEQUENCE = ["IN", "Lunch OUT", "Lunch IN", "Exit"]
+
+
+@dataclass
+class LunchBreakConfig:
+    """Configurable four-punch lunch sequence.
+
+    The device reports most punches as ``in`` with a single final ``out``, so
+    lunch punches are identified by their position in the day's sequence:
+    1st = job IN, 2nd = Lunch OUT, 3rd = Lunch IN, 4th = end of day / Exit.
+    """
+
+    enabled: bool = True
+    duration_minutes: int = 60
+    sequence: list[str] = field(default_factory=lambda: list(LUNCH_SEQUENCE))
+
+    @classmethod
+    def from_dict(cls, values: dict | None) -> "LunchBreakConfig":
+        values = values or {}
+        try:
+            duration = max(0, min(24 * 60, int(values.get("duration_minutes", 60))))
+        except (TypeError, ValueError):
+            duration = 60
+        sequence = values.get("sequence") or list(LUNCH_SEQUENCE)
+        if not isinstance(sequence, list) or len(sequence) != 4:
+            sequence = list(LUNCH_SEQUENCE)
+        return cls(
+            enabled=bool(values.get("enabled", True)),
+            duration_minutes=duration,
+            sequence=[str(item) for item in sequence],
+        )
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+    def effective_minutes(self, shift: Shift | None) -> int:
+        if not self.enabled:
+            return 0
+        override = int(getattr(shift, "break_minutes", 0) or 0)
+        return override if override > 0 else self.duration_minutes
+
+
+def get_lunch_break_config(db: Session) -> LunchBreakConfig:
+    row = db.query(AppSetting).filter(AppSetting.key == LUNCH_CONFIG_KEY).first()
+    values = {}
+    if row and row.value:
+        try:
+            values = json.loads(row.value)
+        except (TypeError, ValueError):
+            values = {}
+    return LunchBreakConfig.from_dict(values)
+
+
+def save_lunch_break_config(db: Session, values: dict) -> LunchBreakConfig:
+    config = LunchBreakConfig.from_dict(values)
+    row = db.query(AppSetting).filter(AppSetting.key == LUNCH_CONFIG_KEY).first()
+    if row is None:
+        row = AppSetting(key=LUNCH_CONFIG_KEY)
+        db.add(row)
+    row.value = json.dumps(config.as_dict())
+    db.commit()
+    return config
+
+
 @dataclass
 class NormalizedPunch:
     id: int
@@ -452,16 +517,40 @@ def debounce_punches(punches: Iterable[NormalizedPunch], minutes: int) -> list[N
     return kept
 
 
-def pair_punches(punches: list[NormalizedPunch], mode: str = "strict") -> tuple[list[dict], float, float]:
+def pair_punches(
+    punches: list[NormalizedPunch], mode: str = "strict", lunch_minutes: int = 0
+) -> tuple[list[dict], float, float]:
     """Return work sessions, net hours and break hours.
 
     ``strict`` creates every completed IN/OUT session and deducts the gaps
     between them.  Repeated IN punches before the first OUT are treated as
     device duplicates, so the day is one session from the first IN to the last
     OUT.  ``first_last`` always uses the full span of the day.
+
+    When ``lunch_minutes`` is set and the day has exactly four punches, the
+    punches are read positionally as IN → Lunch OUT → Lunch IN → Exit and the
+    configured lunch duration is deducted, regardless of how the device
+    labelled the middle punches.
     """
     if not punches:
         return [], 0.0, 0.0
+
+    if lunch_minutes > 0 and mode != "first_last" and len(punches) == 4:
+        job_in, lunch_out, lunch_in, exit_punch = punches
+        if lunch_out.punch_time < lunch_in.punch_time:
+            sessions = []
+            for start, end in ((job_in, lunch_out), (lunch_in, exit_punch)):
+                span = max(0.0, (end.punch_time - start.punch_time).total_seconds())
+                sessions.append({
+                    "in": start.as_dict(), "out": end.as_dict(),
+                    "start": start.punch_time, "end": end.punch_time,
+                    "minutes": span / 60,
+                })
+            gross_seconds = max(
+                0.0, (exit_punch.punch_time - job_in.punch_time).total_seconds()
+            )
+            net_seconds = max(0.0, gross_seconds - lunch_minutes * 60)
+            return sessions, round2(net_seconds / 3600), round2(lunch_minutes / 60)
 
     if mode == "first_last":
         start, end = punches[0].punch_time, punches[-1].punch_time
@@ -550,6 +639,7 @@ class AttendanceEngine:
     def __init__(self, db: Session, config: EngineConfig | None = None):
         self.db = db
         self.config = config or get_engine_config(db)
+        self.lunch_break = get_lunch_break_config(db)
 
     # -- shift resolution ---------------------------------------------------
     def _resolve_shift(self, employee: Employee, day: date, data: AttendanceData) -> Shift | None:
@@ -656,7 +746,10 @@ class AttendanceEngine:
     ) -> DayCalculation:
         cfg = self.config
         normalized = debounce_punches(punches, cfg.punch_debounce_minutes)
-        sessions, net_hours, break_hours = pair_punches(normalized, cfg.pairing_mode)
+        lunch_minutes = self.lunch_break.effective_minutes(shift)
+        sessions, net_hours, break_hours = pair_punches(
+            normalized, cfg.pairing_mode, lunch_minutes=lunch_minutes
+        )
         first_in = normalized[0].punch_time if normalized else None
         last_out = normalized[-1].punch_time if normalized else None
         gross_hours = round2((last_out - first_in).total_seconds() / 3600) if first_in and last_out and len(normalized) > 1 else 0.0

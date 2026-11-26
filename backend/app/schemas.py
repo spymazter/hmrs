@@ -250,6 +250,19 @@ class ShiftOut(ORMBase, ShiftBase):
     shift_group_name: Optional[str] = None
 
 
+class LunchBreakConfigIn(BaseModel):
+    enabled: Optional[bool] = None
+    duration_minutes: Optional[int] = None
+    sequence: Optional[list[str]] = None
+
+
+class LunchBreakConfigOut(BaseModel):
+    enabled: bool
+    duration_minutes: int
+    sequence: list[str]
+    shifts: list[dict[str, Any]] = []
+
+
 class EmployeeBase(BaseModel):
     employee_code: str
     first_name: str

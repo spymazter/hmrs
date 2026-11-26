@@ -47,7 +47,7 @@ const TITLES = {
   '/locations': ['Locations', 'Workplaces and branches used by advanced reports'],
   '/shifts': ['Shifts', 'Working hours, grace time and weekly offs'],
   '/shift-groups': ['Shift groups', 'Shared rotations and employee mapping'],
-  '/lunch-break': ['Lunch break', 'Reference lunch break duration by shift'],
+  '/lunch-break': ['Lunch break', '1-hour lunch and four-punch sequence'],
   '/leaves': ['Leave management', 'Applications and approvals'],
   '/attendance': ['Attendance', 'Daily records and raw punch logs'],
   '/reports': ['Reports', 'Daily, weekly and monthly attendance analytics'],

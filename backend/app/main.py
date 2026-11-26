@@ -8,7 +8,7 @@ from app.database import SessionLocal
 from app.models import Device
 from app.routers import (
     access, advanced_reports, attendance, auth, dashboard, devices, employees,
-    employee_documents, leaves, master, payroll, reports, shift_groups, shifts, system,
+    employee_documents, leaves, lunch_break, master, payroll, reports, shift_groups, shifts, system,
 )
 from app.seed import seed_database
 from app.services.biometric import sync_device
@@ -62,7 +62,7 @@ reports_advanced.include_router(advanced_reports.router)
 
 for router in (
     auth.router, dashboard.router, employees.router, employee_documents.router,
-    master.router, shifts.router, shift_groups.router, devices.router,
+    master.router, shifts.router, shift_groups.router, lunch_break.router, devices.router,
     attendance.router, reports.router,
     leaves.router, payroll.router, access.router, system.router,
     attendance_advanced, reports_advanced,
