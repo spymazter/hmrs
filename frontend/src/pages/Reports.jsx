@@ -3,8 +3,9 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { Download, FileBarChart, FileText } from 'lucide-react'
+import { Download, FileBarChart, FileText, RefreshCw } from 'lucide-react'
 import api, { errorMessage } from '../api'
+import { useAuth } from '../context/AuthContext'
 import { Badge, Card, DataTable, Notice, PageHead, SearchableSelect, Stat, todayStr } from '../components/ui'
 
 const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
@@ -28,6 +29,8 @@ const isoWeek = (() => {
 })()
 
 export default function Reports() {
+  const { has } = useAuth()
+  const canManage = has('attendance.manage')
   const [tab, setTab] = useState('daily')
   const [data, setData] = useState(null)
   const [coverage, setCoverage] = useState(null)
@@ -38,6 +41,8 @@ export default function Reports() {
     week: isoWeek.week, department_id: '',
   })
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     api.get('/departments').then((r) => setDepartments(r.data)).catch(() => {})
@@ -55,6 +60,16 @@ export default function Reports() {
     return params
   }
 
+  const recomputeParams = () => {
+    const params = reportParams()
+    params.set('report_type', tab)
+    return params
+  }
+
+  useEffect(() => {
+    setNotice('')
+  }, [tab, filters])
+
   useEffect(() => {
     setData(null)
     const params = reportParams()
@@ -62,7 +77,16 @@ export default function Reports() {
       .then((r) => { setData(r.data); setError('') })
       .catch((e) => setError(errorMessage(e)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, filters])
+  }, [tab, filters, reloadKey])
+
+  const recalculate = async () => {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const response = await api.post(`/reports/recompute?${recomputeParams()}`)
+      setNotice(response.data.message)
+      setReloadKey((key) => key + 1)
+    } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
 
   const exportFile = async (format) => {
     setBusy(true); setError('')
@@ -142,10 +166,13 @@ export default function Reports() {
     <>
       <PageHead title="Reports" subtitle="Daily, weekly and monthly attendance analytics with charts and PDF export"
         actions={<>
+          {canManage && <button className="btn btn-outline" disabled={busy} title="Uses the current report date range and department filter"
+            onClick={recalculate}><RefreshCw size={15} /> {busy ? 'Recalculating…' : 'Recalculate attendance'}</button>}
           <button className="btn btn-outline" disabled={busy} onClick={() => exportFile('csv')}><Download size={15} /> Export CSV</button>
           <button className="btn btn-primary" disabled={busy} onClick={() => exportFile('pdf')}><FileText size={15} /> {busy ? 'Preparing…' : 'Export PDF'}</button>
         </>} />
       <Notice type="error">{error}</Notice>
+      <Notice type="success">{notice}</Notice>
       {coverage && (
         <Notice type="info">
           Log retention: <strong>minimum {coverage.retention_days} days</strong> ·

@@ -5,6 +5,7 @@ the engine output into the legacy ``attendance_records`` table used by the main
 Attendance page, payroll and the standard reports.
 """
 
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.orm import Session
@@ -43,12 +44,15 @@ def recompute_records(
     start_date: date,
     end_date: date,
     employee_id: int | None = None,
+    filters: EngineFilters | None = None,
 ) -> int:
     if start_date > end_date:
         return 0
 
-    filters = EngineFilters(employee_ids=[employee_id] if employee_id else None)
-    calculations = AttendanceEngine(db).calculate_range(start_date, end_date, filters)
+    engine_filters = filters or EngineFilters()
+    if employee_id:
+        engine_filters = replace(engine_filters, employee_ids=[employee_id])
+    calculations = AttendanceEngine(db).calculate_range(start_date, end_date, engine_filters)
     if not calculations:
         return 0
 

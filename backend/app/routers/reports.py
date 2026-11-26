@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.auth import require
 from app.database import get_db
 from app.models import AttendanceRecord, Department, Employee
+from app.services.attendance import recompute_records
+from app.services.attendance_engine import EngineFilters
 from app.services.report_pdf import STATUS_KEYS, build_report_pdf
 from app.utils import month_bounds, parse_date, to_csv, week_bounds
 
@@ -159,6 +161,36 @@ def _summary(rows: list[dict], records: list, daily: bool, status_counts: dict) 
     }
 
 
+def _period_bounds(
+    report_type: str,
+    date_str: str | None,
+    year: int | None,
+    month: int | None,
+    week: int | None,
+) -> tuple[date, date, str, str]:
+    today = date.today()
+    if report_type == "daily":
+        day = parse_date(date_str, today)
+        return (
+            day, day, day.strftime("%d %B %Y"), f"attendance_daily_{day.isoformat()}"
+        )
+    if report_type == "monthly":
+        year = year or today.year
+        month = month or today.month
+        start, end = month_bounds(year, month)
+        return (
+            start, end, start.strftime("%B %Y"), f"attendance_monthly_{year}{month:02d}"
+        )
+    if report_type == "weekly":
+        year = year or today.isocalendar().year
+        week = week or today.isocalendar().week
+        start, end = week_bounds(year, week)
+        return (
+            start, end, f"ISO Week {week}, {year}", f"attendance_weekly_{year}W{week:02d}"
+        )
+    raise HTTPException(400, "type must be daily, weekly or monthly")
+
+
 def _build_payload(
     db: Session,
     report_type: str,
@@ -168,26 +200,9 @@ def _build_payload(
     week: int | None,
     department_id: int | None,
 ) -> dict:
-    today = date.today()
-    if report_type == "daily":
-        day = parse_date(date_str, today)
-        start = end = day
-        period_label = day.strftime("%d %B %Y")
-        filename = f"attendance_daily_{day.isoformat()}"
-    elif report_type == "monthly":
-        year = year or today.year
-        month = month or today.month
-        start, end = month_bounds(year, month)
-        period_label = start.strftime("%B %Y")
-        filename = f"attendance_monthly_{year}{month:02d}"
-    elif report_type == "weekly":
-        year = year or today.isocalendar().year
-        week = week or today.isocalendar().week
-        start, end = week_bounds(year, week)
-        period_label = f"ISO Week {week}, {year}"
-        filename = f"attendance_weekly_{year}W{week:02d}"
-    else:
-        raise HTTPException(400, "type must be daily, weekly or monthly")
+    start, end, period_label, filename = _period_bounds(
+        report_type, date_str, year, month, week
+    )
 
     department = db.query(Department).get(department_id) if department_id else None
     department_label = department.name if department else "All departments"
@@ -222,6 +237,33 @@ def _build_payload(
         "status_counts": status_counts,
         "columns": DAILY_COLUMNS if daily else AGGREGATE_COLUMNS,
         "filename": filename,
+    }
+
+
+@router.post("/recompute")
+def recompute_report(
+    report_type: str,
+    date_str: str | None = None,
+    year: int | None = None,
+    month: int | None = None,
+    week: int | None = None,
+    department_id: int | None = None,
+    db: Session = Depends(get_db),
+    _=Depends(require("attendance.manage")),
+):
+    """Rebuild stored attendance for the exact period shown by the report."""
+    try:
+        start, end, _, _ = _period_bounds(report_type, date_str, year, month, week)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, f"Invalid report period: {exc}")
+    count = recompute_records(
+        db, start, end, filters=EngineFilters(department_id=department_id)
+    )
+    return {
+        "message": f"Recomputed {count} attendance records for {start} to {end}",
+        "records": count,
+        "from_date": start.isoformat(),
+        "to_date": end.isoformat(),
     }
 
 

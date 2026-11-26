@@ -205,12 +205,30 @@ def advanced_config_put(
 def advanced_recompute(
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
+    employee_code: Optional[str] = None,
+    department_ids: list[int] | None = Query(None),
+    location_ids: list[int] | None = Query(None),
+    designation_ids: list[int] | None = Query(None),
+    shift_ids: list[int] | None = Query(None),
     db: Session = Depends(get_db),
     _=Depends(require("attendance.manage")),
 ):
+    """Rebuild stored attendance using the advanced report's active filters."""
     start, end = _dates(from_date, to_date)
-    count = recompute_records(db, start, end)
-    return {"message": f"Recomputed {count} attendance records", "records": count}
+    filters = EngineFilters(
+        employee_code=employee_code,
+        department_ids=department_ids,
+        location_ids=location_ids,
+        designation_ids=designation_ids,
+        shift_ids=shift_ids,
+    )
+    count = recompute_records(db, start, end, filters=filters)
+    return {
+        "message": f"Recomputed {count} attendance records for {start} to {end}",
+        "records": count,
+        "from_date": start.isoformat(),
+        "to_date": end.isoformat(),
+    }
 
 
 # -- Overlay data management -------------------------------------------------

@@ -62,10 +62,13 @@ export default function AdvancedReports() {
     return () => clearTimeout(timer)
   }, [filters])
 
-  const set = (key, value) => setFilters((current) => ({
-    ...current,
-    [key]: typeof value === 'function' ? value(current[key]) : value,
-  }))
+  const set = (key, value) => {
+    setNotice('')
+    setFilters((current) => ({
+      ...current,
+      [key]: typeof value === 'function' ? value(current[key]) : value,
+    }))
+  }
 
   const exportFile = async (format) => {
     setBusy(true); setError('')
@@ -100,10 +103,11 @@ export default function AdvancedReports() {
   }
 
   const recalculate = async () => {
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setNotice('')
     try {
-      const response = await api.post(`/attendance/advanced/recompute?from_date=${filters.from_date}&to_date=${filters.to_date}`)
-      setNotice(response.data.message)
+      const { report, ...recomputeFilters } = filters
+      const response = await api.post(`/attendance/advanced/recompute?${paramString(recomputeFilters)}`)
+      setNotice(`${response.data.message} (${response.data.from_date} → ${response.data.to_date})`)
       setFilters((current) => ({ ...current }))
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
@@ -166,7 +170,8 @@ export default function AdvancedReports() {
         </div>
         {canManage && <div className="export-buttons">
           <button className="btn btn-outline" disabled={busy} onClick={() => config && setConfigOpen(true)}><Settings2 size={15} /> Engine settings</button>
-          <button className="btn btn-outline" disabled={busy} onClick={recalculate}><RefreshCw size={15} /> Recalculate</button>
+          <button className="btn btn-outline" disabled={busy} title="Uses the current date range, employee and shift filters"
+            onClick={recalculate}><RefreshCw size={15} /> {busy ? 'Recalculating…' : 'Recalculate attendance'}</button>
         </div>}
       </div>
 
