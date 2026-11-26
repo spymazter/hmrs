@@ -18,6 +18,31 @@ const PUNCH_TYPES = [
   { value: 'in', label: 'Check in' }, { value: 'out', label: 'Check out' },
   { value: 'break_in', label: 'Break in' }, { value: 'break_out', label: 'Break out' },
 ]
+const QUICK_RANGES = [
+  { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'this_week', label: 'This week' },
+  { value: 'last_7_working_days', label: 'Last 7 working days' },
+  { value: 'custom', label: 'Custom range' },
+]
+const dateText = (value) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+const addDays = (value, days) => new Date(value.getFullYear(), value.getMonth(), value.getDate() + days)
+const weekStart = () => {
+  const today = new Date()
+  const weekday = today.getDay() || 7
+  return addDays(today, 1 - weekday)
+}
+const lastWorkingDaysStart = (count = 7) => {
+  const today = new Date()
+  let cursor = today
+  let workingDays = 0
+  while (workingDays < count) {
+    const weekday = cursor.getDay()
+    if (weekday !== 0 && weekday !== 6) workingDays += 1
+    if (workingDays < count) cursor = addDays(cursor, -1)
+  }
+  return dateText(cursor)
+}
 
 export default function Attendance() {
   const { has } = useAuth()
@@ -25,7 +50,9 @@ export default function Attendance() {
   const canViewAll = has('employee.view')
   const [searchParams] = useSearchParams()
   const day = searchParams.get('date')
+  const hasUrlDates = Boolean(searchParams.get('from') || searchParams.get('to') || day)
   const [tab, setTab] = useState('records')
+  const [quickRange, setQuickRange] = useState(hasUrlDates ? 'custom' : 'today')
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [employees, setEmployees] = useState([])
@@ -50,6 +77,29 @@ export default function Attendance() {
     api.get(`/attendance/${tab === 'records' ? 'records' : 'logs'}?${params}`)
       .then((r) => { setRows(r.data.items); setTotal(r.data.total) })
       .catch((e) => setError(errorMessage(e))).finally(() => setLoading(false))
+  }
+
+  const setDate = (key, value) => {
+    setQuickRange('custom')
+    setError('')
+    setNotice('')
+    setFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  const applyQuickRange = (value) => {
+    setQuickRange(value)
+    setError('')
+    setNotice('')
+    if (value === 'today') {
+      setFilters((current) => ({ ...current, from_date: todayStr(), to_date: todayStr() }))
+    } else if (value === 'yesterday') {
+      const yesterday = dateText(addDays(new Date(), -1))
+      setFilters((current) => ({ ...current, from_date: yesterday, to_date: yesterday }))
+    } else if (value === 'this_week') {
+      setFilters((current) => ({ ...current, from_date: dateText(weekStart()), to_date: todayStr() }))
+    } else if (value === 'last_7_working_days') {
+      setFilters((current) => ({ ...current, from_date: lastWorkingDaysStart(7), to_date: todayStr() }))
+    }
   }
 
   useEffect(() => {
@@ -144,9 +194,9 @@ export default function Attendance() {
         }}>Daily records</button>
         <button className={`tab ${tab === 'logs' ? 'active' : ''}`} onClick={() => {
           if (tab !== 'logs') {
-            if (filters.from_date === todayStr()) {
-              const yearAgo = new Date(Date.now() - 364 * 86400000).toISOString().slice(0, 10)
-              setFilters((f) => ({ ...f, from_date: yearAgo }))
+            if (quickRange === 'today') {
+              setQuickRange('last_7_working_days')
+              setFilters((f) => ({ ...f, from_date: lastWorkingDaysStart(7), to_date: todayStr() }))
             }
             setRows([]); setTotal(0)
           }
@@ -154,6 +204,7 @@ export default function Attendance() {
         }}>Raw punch logs</button>
       </div>
       <Card title={`${tab === 'records' ? 'Daily records' : 'Raw punch logs'} (${total})`}
+        subtitle={tab === 'records' ? 'Sorted by employee A–Z' : undefined}
         actions={<div className="export-buttons">
           <button className="btn btn-outline btn-sm" disabled={!!exporting} onClick={() => exportView('xlsx')} title="Download current view as Excel">
             <Download size={14} /> Excel
@@ -163,8 +214,9 @@ export default function Attendance() {
           </button>
         </div>}>
         <div className="toolbar" style={{ marginTop: 0 }}>
-          <div className="field-inline"><label>From</label><input type="date" value={filters.from_date} onChange={(e) => setFilters({ ...filters, from_date: e.target.value })} style={{ width: 150 }} /></div>
-          <div className="field-inline"><label>To</label><input type="date" value={filters.to_date} onChange={(e) => setFilters({ ...filters, to_date: e.target.value })} style={{ width: 150 }} /></div>
+          <div className="field-inline"><label>Quick range</label><SearchableSelect value={quickRange} onChange={applyQuickRange} options={QUICK_RANGES} clearable={false} style={{ width: 175 }} /></div>
+          <div className="field-inline"><label>From</label><input type="date" value={filters.from_date} onChange={(e) => setDate('from_date', e.target.value)} style={{ width: 150 }} /></div>
+          <div className="field-inline"><label>To</label><input type="date" value={filters.to_date} onChange={(e) => setDate('to_date', e.target.value)} style={{ width: 150 }} /></div>
           {canViewAll && <SearchableSelect
             value={filters.employee_id}
             onChange={(v) => setFilters({ ...filters, employee_id: v })}

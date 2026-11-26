@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user, require, scoped_employee_id
@@ -75,6 +76,15 @@ def _record_query(
     return query
 
 
+def _employee_name_order():
+    """Stable A–Z ordering for the Attendance page's Employee column."""
+    return (
+        func.lower(Employee.first_name).asc(),
+        func.lower(Employee.last_name).asc(),
+        Employee.employee_code.asc(),
+    )
+
+
 @router.get("/logs", response_model=PunchListOut)
 def list_logs(
     from_date: str | None = None,
@@ -139,7 +149,7 @@ def list_records(
     start, end = _date_range(from_date, to_date)
     query = _record_query(db, user, start, end, employee_id, department_id, status)
     total = query.count()
-    items = query.order_by(AttendanceRecord.record_date.desc(), Employee.employee_code).offset(skip).limit(min(limit, 1000)).all()
+    items = query.order_by(*_employee_name_order(), AttendanceRecord.record_date.desc()).offset(skip).limit(min(limit, 1000)).all()
     return {"items": items, "total": total}
 
 
@@ -187,7 +197,7 @@ def export_attendance(
         query = _record_query(db, user, start, end, employee_id, department_id, status)
         total = query.count()
         items = query.order_by(
-            AttendanceRecord.record_date.desc(), Employee.employee_code
+            *_employee_name_order(), AttendanceRecord.record_date.desc()
         ).limit(EXPORT_LIMIT).all()
         columns = [
             {"key": "record_date", "label": "Date"},
