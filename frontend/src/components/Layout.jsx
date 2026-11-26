@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3, BriefcaseBusiness, Building2, CalendarCheck2, CalendarRange, ChevronDown, ClipboardList,
-  FileBarChart, FileText, Fingerprint, LayoutDashboard, LogOut, MapPin, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
+  Coffee, FileBarChart, FileText, Fingerprint, LayoutDashboard, LogOut, MapPin, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -20,6 +20,7 @@ const NAV = [
     { to: '/locations', label: 'Locations', icon: MapPin, perm: ['employee.view'] },
     { to: '/shifts', label: 'Shifts', icon: CalendarCheck2, perm: ['shift.view', 'employee.view'] },
     { to: '/shift-groups', label: 'Shift groups', icon: CalendarRange, perm: ['shift.view', 'employee.view'] },
+    { to: '/lunch-break', label: 'Lunch break', icon: Coffee, perm: ['shift.view', 'employee.view'] },
     { to: '/leaves', label: 'Leave management', icon: ClipboardList, perm: ['leave.view'] },
   ] },
   { section: 'Attendance', items: [
@@ -46,6 +47,7 @@ const TITLES = {
   '/locations': ['Locations', 'Workplaces and branches used by advanced reports'],
   '/shifts': ['Shifts', 'Working hours, grace time and weekly offs'],
   '/shift-groups': ['Shift groups', 'Shared rotations and employee mapping'],
+  '/lunch-break': ['Lunch break', 'Reference lunch break duration by shift'],
   '/leaves': ['Leave management', 'Applications and approvals'],
   '/attendance': ['Attendance', 'Daily records and raw punch logs'],
   '/reports': ['Reports', 'Daily, weekly and monthly attendance analytics'],
