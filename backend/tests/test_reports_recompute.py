@@ -71,6 +71,19 @@ def test_reports_recompute_can_be_scoped_by_designation():
         db.close()
 
 
+def test_daily_report_rows_are_sorted_by_employee_name():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        payload = reports.daily_report("2026-10-06", None, None, db, None)
+        names = [row["employee_name"] for row in payload["rows"]]
+        assert names
+        assert names == sorted(names, key=str.casefold)
+        assert names[0] == "Asha Sample"
+    finally:
+        db.close()
+
+
 def test_advanced_recompute_honors_active_filters():
     _, Session = sample_db()
     db = Session()

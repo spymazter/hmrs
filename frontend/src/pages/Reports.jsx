@@ -278,7 +278,7 @@ export default function Reports() {
           </div>
 
           <Card title={`${daily ? `Daily attendance — ${data.date}` : `${data.period} attendance summary`} · ${scopeLabel}`}
-            subtitle={`${rows.length} employee rows (including employees with no punches)`}>
+            subtitle={`${rows.length} employee rows (including employees with no punches)${daily ? ' · sorted by employee A–Z' : ''}`}>
             <DataTable rows={rows} emptyText="No employees match this filter" columns={columns} />
           </Card>
         </>

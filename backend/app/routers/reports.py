@@ -98,6 +98,10 @@ def _daily_rows(employees, records_by_employee, day: date) -> list[dict]:
             "joined_on": emp.date_of_joining.isoformat() if emp.date_of_joining else "",
             "has_data": bool(record),
         })
+    rows.sort(key=lambda row: (
+        str(row.get("employee_name") or "").casefold(),
+        str(row.get("employee_code") or "").casefold(),
+    ))
     return rows
 
 
