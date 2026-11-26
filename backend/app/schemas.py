@@ -178,6 +178,7 @@ class ShiftGroupShiftOut(ORMBase):
 class ShiftGroupCreate(ShiftGroupBase):
     shift_ids: list[int] = []
     employee_ids: list[int] = []
+    designation_ids: list[int] = []
 
 
 class ShiftGroupUpdate(BaseModel):
@@ -187,18 +188,21 @@ class ShiftGroupUpdate(BaseModel):
     is_active: Optional[bool] = None
     shift_ids: Optional[list[int]] = None
     employee_ids: Optional[list[int]] = None
+    designation_ids: Optional[list[int]] = None
 
 
 class ShiftGroupOut(ORMBase, ShiftGroupBase):
     id: int
     shift_ids: list[int] = []
     employee_ids: list[int] = []
+    designation_ids: list[int] = []
     shifts: list[ShiftGroupShiftOut] = []
     employees: list[ShiftGroupMemberOut] = []
 
 
 class ShiftGroupEmployeeMapping(BaseModel):
-    employee_ids: list[int]
+    employee_ids: Optional[list[int]] = None
+    designation_ids: Optional[list[int]] = None
 
 
 class ShiftBase(BaseModel):

@@ -1,7 +1,7 @@
 from datetime import date
 
 from conftest import sample_db
-from app.models import Employee, Shift, ShiftGroup
+from app.models import Designation, Employee, Shift, ShiftGroup
 from app.routers.shift_groups import create_group, delete_group, map_employees, update_group
 from app.schemas import ShiftGroupCreate, ShiftGroupEmployeeMapping, ShiftGroupUpdate
 from app.services.attendance_engine import AttendanceData, AttendanceEngine, EngineFilters
@@ -37,6 +37,96 @@ def test_group_crud_maps_employees_and_shifts():
         delete_group(created.id, db, None)
         assert db.query(ShiftGroup).count() == 0
         assert all(db.get(Employee, i).shift_group_id is None for i in employee_ids)
+    finally:
+        db.close()
+
+
+def test_designation_assignment_controls_rotation():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        designation = db.query(Designation).one()
+        shift = db.query(Shift).filter(Shift.name == "Night").one()
+        employee = db.query(Employee).filter(Employee.employee_code == "SMP001").one()
+
+        created = create_group(
+            ShiftGroupCreate(name="Designation group", shift_ids=[shift.id],
+                             designation_ids=[designation.id]), db, None,
+        )
+        assert created.designation_ids == [designation.id]
+        # Designation membership is dynamic: no direct FK is written.
+        assert employee.shift_group_id is None
+
+        data = AttendanceData(db, date(2026, 10, 5), date(2026, 10, 11))
+        resolved = AttendanceEngine(db)._resolve_shift(employee, date(2026, 10, 6), data)
+        assert resolved.id == shift.id
+
+        rows = AttendanceEngine(db).calculate_range(
+            date(2026, 10, 5), date(2026, 10, 11), EngineFilters(shift_id=shift.id),
+        )
+        assert "SMP001" in {row.employee_code for row in rows}
+    finally:
+        db.close()
+
+
+def test_designation_belongs_to_only_one_group():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        designation = db.query(Designation).one()
+        first = create_group(
+            ShiftGroupCreate(name="First group", designation_ids=[designation.id]), db, None,
+        )
+        second = create_group(
+            ShiftGroupCreate(name="Second group", designation_ids=[designation.id]), db, None,
+        )
+        assert first.designation_ids == []
+        assert second.designation_ids == [designation.id]
+    finally:
+        db.close()
+
+
+def test_direct_employee_mapping_overrides_designation_group():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        designation = db.query(Designation).one()
+        employee = db.query(Employee).filter(Employee.employee_code == "SMP001").one()
+        night = db.query(Shift).filter(Shift.name == "Night").one()
+        general = db.query(Shift).filter(Shift.name == "General").one()
+
+        designation_group = create_group(
+            ShiftGroupCreate(name="By designation", shift_ids=[night.id],
+                             designation_ids=[designation.id]), db, None,
+        )
+        direct_group = create_group(
+            ShiftGroupCreate(name="By employee", shift_ids=[general.id]), db, None,
+        )
+        map_employees(
+            direct_group.id,
+            ShiftGroupEmployeeMapping(employee_ids=[employee.id]), db, None,
+        )
+        assert employee.shift_group_id == direct_group.id
+
+        data = AttendanceData(db, date(2026, 10, 5), date(2026, 10, 11))
+        resolved = AttendanceEngine(db)._resolve_shift(employee, date(2026, 10, 6), data)
+        assert resolved.id == general.id
+        assert designation_group.designation_ids == [designation.id]
+    finally:
+        db.close()
+
+
+def test_mapping_endpoint_accepts_designation_only_payload():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        designation = db.query(Designation).one()
+        group = create_group(ShiftGroupCreate(name="Mapping group"), db, None)
+        mapped = map_employees(
+            group.id, ShiftGroupEmployeeMapping(designation_ids=[designation.id]), db, None,
+        )
+        assert mapped.designation_ids == [designation.id]
+        assert mapped.employee_ids == []
     finally:
         db.close()
 

@@ -123,9 +123,10 @@ class Designation(Base):
 class ShiftGroup(Base):
     """A named roster group: a set of shifts shared by a set of employees.
 
-    Employees mapped to a group rotate through that group's shifts when no
-    explicit daily roster row exists.  Membership is stored on the employee
-    (one group per employee) and on each shift (one group per shift).
+    Membership can be direct (stored on the employee) or by designation.  A
+    designation assignment applies dynamically to every employee holding that
+    designation; a direct employee assignment always wins.  Either kind of
+    member rotates through the group's shifts when no daily roster row exists.
     """
     __tablename__ = "shift_groups"
     id = Column(Integer, primary_key=True)
@@ -133,6 +134,7 @@ class ShiftGroup(Base):
     code = Column(String(30), unique=True)
     description = Column(String(255))
     is_active = Column(Boolean, default=True)
+    designation_ids = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.now)
 
     shifts = relationship("Shift", back_populates="shift_group")

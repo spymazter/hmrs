@@ -62,6 +62,9 @@ _COLUMN_MIGRATIONS = {
         "rotation_group": "VARCHAR(50)",
         "shift_group_id": "INTEGER",
     },
+    "shift_groups": {
+        "designation_ids": "JSON DEFAULT '[]'",
+    },
     "punch_logs": {
         "verify_mode": "VARCHAR(30)",
         "device_serial": "VARCHAR(100)",
@@ -462,6 +465,34 @@ def _migrate_comp_off_sources() -> None:
     _set_marker(key, date.today().isoformat())
 
 
+def _normalize_shift_group_designations() -> None:
+    """Keep designation mappings readable even on databases created by old code."""
+    with engine.begin() as connection:
+        rows = connection.execute(
+            text("SELECT id, designation_ids FROM shift_groups")
+        ).fetchall()
+        for row in rows:
+            try:
+                raw = json.loads(row.designation_ids) if row.designation_ids else []
+            except (TypeError, ValueError):
+                raw = []
+            if not isinstance(raw, list):
+                raw = []
+            cleaned = []
+            for value in raw:
+                try:
+                    cleaned.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+            cleaned = list(dict.fromkeys(cleaned))
+            encoded = json.dumps(cleaned)
+            if (row.designation_ids or "[]") != encoded:
+                connection.execute(
+                    text("UPDATE shift_groups SET designation_ids = :value WHERE id = :id"),
+                    {"value": encoded, "id": row.id},
+                )
+
+
 def run_migrations() -> None:
     """Add new columns to an existing database without recreating tables."""
     inspector = inspect(engine)
@@ -501,6 +532,7 @@ def run_migrations() -> None:
     _link_demo_manager()
     _link_demo_manager_user()
     _migrate_comp_off_sources()
+    _normalize_shift_group_designations()
 
 
 def get_db():

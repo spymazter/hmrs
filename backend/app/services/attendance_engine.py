@@ -9,6 +9,7 @@ Supported rules:
   * First-In/Last-Out or strict alternating in/out pairs
   * configurable duplicate-punch debounce
   * fixed, rotational/rostered, flexi and cross-midnight night shifts
+  * shift groups assigned directly or by employee designation
   * late-in / early-out grace, half-day and full-day thresholds
   * pre/post shift, weekly-off and holiday OT with threshold + rounding
   * leave, on-duty, comp-off and approved manual regularization overlay
@@ -212,11 +213,17 @@ class AttendanceData:
         self.db = db
         self.filters = filters or EngineFilters()
         # Explicit shift groups take priority over the legacy rotation_group
-        # text field when resolving a shift for a day.
+        # text field when resolving a shift for a day.  Designation groups are
+        # resolved dynamically so new employees inherit the mapping.
+        groups = db.query(ShiftGroup).order_by(ShiftGroup.id).all()
         self.group_shifts = {
             group.id: sorted(group.shifts, key=lambda s: s.id)
-            for group in db.query(ShiftGroup).all()
+            for group in groups
         }
+        self.group_designations: dict[int, int] = {}
+        for group in groups:
+            for designation_id in group.designation_ids or []:
+                self.group_designations.setdefault(designation_id, group.id)
         self.employees = self._load_employees()
         ids = [e.id for e in self.employees]
         self.punches = self._load_punches(start - timedelta(days=1), end + timedelta(days=1), ids)
@@ -269,7 +276,15 @@ class AttendanceData:
             ]
             condition = Employee.shift_id.in_(shift_values)
             if group_ids:
-                condition = or_(condition, Employee.shift_group_id.in_(group_ids))
+                grouped_conditions = [Employee.shift_group_id.in_(group_ids)]
+                designation_ids = [
+                    designation_id
+                    for designation_id, group_id in self.group_designations.items()
+                    if group_id in group_ids
+                ]
+                if designation_ids:
+                    grouped_conditions.append(Employee.designation_id.in_(designation_ids))
+                condition = or_(condition, *grouped_conditions)
             query = query.filter(condition)
         return query.order_by(Employee.employee_code).all()
 
@@ -544,10 +559,12 @@ class AttendanceEngine:
             if shift:
                 return shift
         # Grouped employees rotate weekly from a fixed anchor when no roster
-        # row exists.  Legacy shift.rotation_group remains a fallback.
+        # row exists.  A direct employee group wins over a designation group;
+        # legacy shift.rotation_group remains the final fallback.
         shifts = []
-        if employee.shift_group_id:
-            shifts = data.group_shifts.get(employee.shift_group_id) or []
+        group_id = employee.shift_group_id or data.group_designations.get(employee.designation_id)
+        if group_id:
+            shifts = data.group_shifts.get(group_id) or []
         if not shifts:
             group = employee.shift.rotation_group if employee.shift else None
             shifts = data.rotation_shifts.get(group, []) if group else []

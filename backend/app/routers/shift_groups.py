@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require
 from app.database import get_db
-from app.models import Employee, Shift, ShiftGroup
+from app.models import Designation, Employee, Shift, ShiftGroup
 from app.schemas import (
     ShiftGroupCreate, ShiftGroupEmployeeMapping, ShiftGroupOut, ShiftGroupUpdate,
 )
@@ -41,12 +41,32 @@ def _check_unique(group: ShiftGroup, payload, db: Session) -> None:
             raise HTTPException(400, "Shift group code already exists")
 
 
-def _apply_links(group: ShiftGroup, shift_ids, employee_ids, db: Session) -> None:
-    """Writing the relationship keeps both sides' foreign keys in sync."""
+def _set_designations(group: ShiftGroup, designation_ids, db: Session) -> None:
+    """Store designation membership and keep it exclusive across groups."""
+    designations = _resolve_rows(Designation, designation_ids, "designation", db)
+    selected = [designation.id for designation in designations]
+    group.designation_ids = selected
+    if not selected:
+        return
+
+    query = db.query(ShiftGroup)
+    if group.id:
+        query = query.filter(ShiftGroup.id != group.id)
+    for other in query.all():
+        current = list(other.designation_ids or [])
+        remaining = [value for value in current if value not in selected]
+        if remaining != current:
+            other.designation_ids = remaining
+
+
+def _apply_links(group: ShiftGroup, shift_ids, employee_ids, designation_ids, db: Session) -> None:
+    """Writing relationships keeps both sides' foreign keys in sync."""
     if shift_ids is not None:
         group.shifts = _resolve_rows(Shift, shift_ids, "shift", db)
     if employee_ids is not None:
         group.employees = _resolve_rows(Employee, employee_ids, "employee", db)
+    if designation_ids is not None:
+        _set_designations(group, designation_ids, db)
 
 
 @router.get("", response_model=list[ShiftGroupOut])
@@ -65,7 +85,7 @@ def create_group(payload: ShiftGroupCreate, db: Session = Depends(get_db), _=Dep
     _check_unique(group, payload, db)
     db.add(group)
     db.flush()
-    _apply_links(group, payload.shift_ids, payload.employee_ids, db)
+    _apply_links(group, payload.shift_ids, payload.employee_ids, payload.designation_ids, db)
     db.commit()
     db.refresh(group)
     return group
@@ -79,14 +99,14 @@ def update_group(group_id: int, payload: ShiftGroupUpdate, db: Session = Depends
     if payload.name is not None:
         _check_unique(group, payload, db)
     for key, value in payload.model_dump(exclude_unset=True).items():
-        if key in ("shift_ids", "employee_ids"):
+        if key in ("shift_ids", "employee_ids", "designation_ids"):
             continue
         if key == "name":
             value = value.strip()
         if key == "code":
             value = value.strip() or None if value is not None else None
         setattr(group, key, value)
-    _apply_links(group, payload.shift_ids, payload.employee_ids, db)
+    _apply_links(group, payload.shift_ids, payload.employee_ids, payload.designation_ids, db)
     db.commit()
     db.refresh(group)
     return group
@@ -94,11 +114,14 @@ def update_group(group_id: int, payload: ShiftGroupUpdate, db: Session = Depends
 
 @router.put("/{group_id}/employees", response_model=ShiftGroupOut)
 def map_employees(group_id: int, payload: ShiftGroupEmployeeMapping, db: Session = Depends(get_db), _=Depends(require("shift.manage"))):
-    """Replace the employees mapped to a group. An employee belongs to one group."""
+    """Replace direct employees and/or designation assignments for a group."""
     group = db.get(ShiftGroup, group_id)
     if not group:
         raise HTTPException(404, "Shift group not found")
-    group.employees = _resolve_rows(Employee, payload.employee_ids, "employee", db)
+    if payload.employee_ids is not None:
+        group.employees = _resolve_rows(Employee, payload.employee_ids, "employee", db)
+    if payload.designation_ids is not None:
+        _set_designations(group, payload.designation_ids, db)
     db.commit()
     db.refresh(group)
     return group
