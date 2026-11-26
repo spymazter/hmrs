@@ -75,6 +75,7 @@ _COLUMN_MIGRATIONS = {
     },
     "leave_types": {
         "code": "VARCHAR(20)",
+        "is_active": "BOOLEAN DEFAULT 1",
     },
     "leave_requests": {
         "manager_approved_by": "INTEGER",
@@ -295,7 +296,7 @@ def _seed_leave_defaults() -> None:
         ))
 
         year = date.today().year
-        for code, quota in (("CL", 12), ("SL", 12), ("EL", 18), ("RH", 2), ("LOP", 0)):
+        for code, quota in (("CL", 12), ("EL", 18), ("RH", 2), ("LOP", 0)):
             row = connection.execute(
                 text("SELECT id FROM leave_types WHERE code = :code"), {"code": code}
             ).first()
@@ -306,6 +307,24 @@ def _seed_leave_defaults() -> None:
                 "VALUES ('global', 'ALL', :leave_type_id, :year, :days, datetime('now')) "
                 "ON CONFLICT(scope, scope_value, leave_type_id, year) DO NOTHING"
             ), {"leave_type_id": row.id, "year": year, "days": quota})
+    _set_marker(key, date.today().isoformat())
+
+
+def _retire_sick_leave() -> None:
+    """Take Sick Leave out of the active catalogue, keeping historical rows intact."""
+    key = "sick_leave_retired_v1"
+    if _has_marker(key):
+        return
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE leave_types SET is_active = 1 WHERE is_active IS NULL"))
+        connection.execute(text(
+            "UPDATE leave_types SET is_active = 0 "
+            "WHERE code = 'SL' OR lower(trim(name)) = 'sick leave'"
+        ))
+        connection.execute(text(
+            "DELETE FROM leave_quotas WHERE leave_type_id IN "
+            "(SELECT id FROM leave_types WHERE code = 'SL' OR lower(trim(name)) = 'sick leave')"
+        ))
     _set_marker(key, date.today().isoformat())
 
 
@@ -477,6 +496,7 @@ def run_migrations() -> None:
     _grant_document_permissions()
     _create_leave_tables()
     _seed_leave_defaults()
+    _retire_sick_leave()
     _grant_leave_permissions()
     _link_demo_manager()
     _link_demo_manager_user()

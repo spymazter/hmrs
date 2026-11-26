@@ -67,7 +67,6 @@ def create_sample_db(url: str = "sqlite://"):
         leave_types = {}
         for name, code, quota, paid in (
             ("Casual Leave", "CL", 12, True),
-            ("Sick Leave", "SL", 12, True),
             ("Earned Leave", "EL", 18, True),
             ("Restricted Holiday", "RH", 2, True),
             ("Loss of Pay", "LOP", 0, False),
@@ -76,7 +75,7 @@ def create_sample_db(url: str = "sqlite://"):
             db.add(item)
             leave_types[code] = item
         db.flush()
-        for code, quota in (("CL", 12), ("SL", 12), ("EL", 18), ("RH", 2), ("LOP", 0)):
+        for code, quota in (("CL", 12), ("EL", 18), ("RH", 2), ("LOP", 0)):
             db.add(LeaveQuota(
                 scope="global", scope_value="ALL", leave_type_id=leave_types[code].id,
                 year=SAMPLE_START.year, days=quota,

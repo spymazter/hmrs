@@ -388,8 +388,10 @@ class LeaveType(Base):
     __tablename__ = "leave_types"
     id = Column(Integer, primary_key=True)
     name = Column(String(100), unique=True, nullable=False)
-    # Stable short code used by quotas, balances and payslips (CL, SL, EL, RH, LOP).
+    # Stable short code used by quotas, balances and payslips (CL, EL, RH, LOP).
+    # SL is retained only for historical rows and is marked inactive.
     code = Column(String(20), unique=True)
+    is_active = Column(Boolean, default=True)
     is_paid = Column(Boolean, default=True)
     max_days_per_year = Column(Integer, default=12)
     color = Column(String(20), default="#0ea5e9")

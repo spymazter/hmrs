@@ -126,7 +126,7 @@ def delete_designation(item_id: int, db: Session = Depends(get_db), _=Depends(re
 # Leave types ---------------------------------------------------------------
 @router.get("/leave-types", response_model=list[LeaveTypeOut])
 def list_leave_types(db: Session = Depends(get_db), _=Depends(require("leave.view", "self.portal"))):
-    return db.query(LeaveType).order_by(LeaveType.name).all()
+    return db.query(LeaveType).filter(LeaveType.is_active.is_(True)).order_by(LeaveType.name).all()
 
 
 @router.post("/leave-types", response_model=LeaveTypeOut, status_code=201)

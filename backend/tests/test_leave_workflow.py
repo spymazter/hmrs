@@ -13,11 +13,12 @@ from app.models import (
     AttendanceRecord, CompOff, Employee, LeaveRequest, LeaveType, PayrollPeriod,
     PunchLog, Role, SalaryStructure, Shift, User,
 )
-from app.routers import leaves as leaves_router
+from app.routers import leaves as leaves_router, master as master_router
 from app.schemas import (
     LeaveQuotaIn, LeaveRequestCreate, LeaveVerifyIn, RestrictedHolidayIn,
 )
 from app.services.comp_off import accrue_comp_offs
+from app.services.leave_workflow import leave_balances
 from app.services.payroll import process_payroll
 from conftest import sample_db
 
@@ -288,5 +289,37 @@ def test_full_day_lop_reduces_payroll_and_appears_on_payslip(monkeypatch, tmp_pa
         assert payslip.lop_days == 1
         assert payslip.lop_amount > 0
         assert payslip.gross_salary < 81000
+    finally:
+        db.close()
+
+
+def test_sick_leave_is_retired_from_leave_management():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        admin_role = _role(db, "AdminRetiredSL", ALL_LEAVE_CODES)
+        admin = _user(db, "admin-retired-sl", admin_role)
+        employee = _employee(db, "SL001", "9101")
+
+        assert "SL" not in {t.code for t in master_router.list_leave_types(db, None)}
+        assert "SL" not in {
+            row["leave_type_code"] for row in leave_balances(db, employee, 2026)
+        }
+
+        # A legacy SL row is kept for old records but cannot be used or mapped.
+        sick = LeaveType(name="Sick Leave", code="SL", is_active=False)
+        db.add(sick)
+        db.flush()
+        with pytest.raises(HTTPException) as exc:
+            _apply(db, admin, employee, sick, date(2026, 11, 1), date(2026, 11, 1))
+        assert exc.value.status_code == 404
+        with pytest.raises(HTTPException) as exc:
+            leaves_router.upsert_quota(
+                LeaveQuotaIn(leave_type_id=sick.id, year=2026, days=5), db, admin
+            )
+        assert exc.value.status_code == 404
+        assert sick.id not in {
+            quota.leave_type_id for quota in leaves_router.list_quotas(2026, None, db, admin)
+        }
     finally:
         db.close()

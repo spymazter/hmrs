@@ -454,6 +454,7 @@ class AttendanceListOut(BaseModel):
 class LeaveTypeBase(BaseModel):
     name: str
     code: Optional[str] = None
+    is_active: bool = True
     is_paid: bool = True
     max_days_per_year: int = 12
     color: str = "#0ea5e9"

@@ -134,7 +134,7 @@ def _count_days(
 def leave_balances(
     db: Session, employee: Employee, year: int, leave_type_id: int | None = None
 ) -> list[dict]:
-    query = db.query(LeaveType)
+    query = db.query(LeaveType).filter(LeaveType.is_active.is_(True))
     if leave_type_id:
         query = query.filter(LeaveType.id == leave_type_id)
     rows = []

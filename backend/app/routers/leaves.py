@@ -85,10 +85,12 @@ def _find_leave_type(db: Session, row: dict) -> LeaveType | None:
     code = str(_value(row, "Leave Code", "Code", "Leave Type") or "").strip()
     label = str(_value(row, "Leave Type", "Name") or "").strip()
     found = leave_type_by_code(db, code) if code else None
-    if found:
+    if found and found.is_active:
         return found
     if label:
-        return db.query(LeaveType).filter(LeaveType.name.ilike(label)).first()
+        return db.query(LeaveType).filter(
+            LeaveType.name.ilike(label), LeaveType.is_active.is_(True)
+        ).first()
     return None
 
 
@@ -142,7 +144,7 @@ def apply_leave(
     if not can_apply_for(db, user, employee):
         raise HTTPException(403, "You can only apply for yourself or your direct reports")
     leave_type = db.get(LeaveType, payload.leave_type_id)
-    if not leave_type:
+    if not leave_type or not leave_type.is_active:
         raise HTTPException(404, "Leave type not found")
     validate_application(
         db, employee, leave_type, payload.from_date, payload.to_date,
@@ -184,7 +186,11 @@ def list_quotas(
     db: Session = Depends(get_db),
     _=Depends(require("leave.view", "self.portal")),
 ):
-    query = db.query(LeaveQuota).filter(LeaveQuota.year == year)
+    query = (
+        db.query(LeaveQuota)
+        .join(LeaveType, LeaveType.id == LeaveQuota.leave_type_id)
+        .filter(LeaveQuota.year == year, LeaveType.is_active.is_(True))
+    )
     if employee_id:
         query = query.filter(
             ((LeaveQuota.scope == "employee") & (LeaveQuota.scope_value == str(employee_id)))
@@ -203,7 +209,8 @@ def upsert_quota(
         raise HTTPException(400, "Invalid year")
     if payload.days < 0:
         raise HTTPException(400, "Days cannot be negative")
-    if not db.get(LeaveType, payload.leave_type_id):
+    leave_type = db.get(LeaveType, payload.leave_type_id)
+    if not leave_type or not leave_type.is_active:
         raise HTTPException(404, "Leave type not found")
     scope = "global"
     scope_value = "ALL"
