@@ -64,7 +64,7 @@ export default function EmployeeDocuments() {
   const [category, setCategory] = useState('')
   const [rosterSearch, setRosterSearch] = useState('')
   const [rosterStatus, setRosterStatus] = useState('')
-  const [view, setView] = useState('tiles')
+  const [view, setView] = useState(isHR ? 'list' : 'tiles')
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState({ employee_id: '', category: 'employee_pan' })
   const [preview, setPreview] = useState(null)
@@ -86,6 +86,8 @@ export default function EmployeeDocuments() {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => { setView(isHR ? 'list' : 'tiles') }, [isHR])
 
   useEffect(() => {
     if (!isHR) {
