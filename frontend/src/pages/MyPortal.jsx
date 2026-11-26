@@ -9,6 +9,8 @@ import {
   fmtTime, todayStr,
 } from '../components/ui'
 
+const GENDER_OPTIONS = ['Male', 'Female'].map((v) => ({ value: v, label: v }))
+
 const KYC_CATEGORIES = [
   { value: 'employee_pan', label: 'Employee PAN card' },
   { value: 'employee_aadhaar', label: 'Employee Aadhaar card' },
@@ -339,11 +341,21 @@ export default function MyPortal() {
         <div className="form-grid">
           {personalFields.map(([key, label]) => (
             <Field key={key} label={label} full={key === 'address'}>
-              <input
-                type={key === 'date_of_birth' ? 'date' : key === 'email' ? 'email' : 'text'}
-                value={form[key] ?? ''}
-                onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-              />
+              {key === 'gender' ? (
+                <SearchableSelect
+                  value={form.gender ?? ''}
+                  onChange={(v) => setForm({ ...form, gender: v })}
+                  options={GENDER_OPTIONS}
+                  placeholder="—"
+                  searchPlaceholder="Search gender…"
+                />
+              ) : (
+                <input
+                  type={key === 'date_of_birth' ? 'date' : key === 'email' ? 'email' : 'text'}
+                  value={form[key] ?? ''}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                />
+              )}
             </Field>
           ))}
         </div>
