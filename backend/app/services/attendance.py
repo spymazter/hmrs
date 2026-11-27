@@ -40,12 +40,14 @@ def _clock(value: str, day: date) -> datetime | None:
 
 
 def _lunch_times(calc):
-    """Return (lunch out, lunch in) from a four-punch lunch sequence."""
-    punches = getattr(calc, "raw_punches", None) or []
-    if len(punches) < 4:
-        return None, None
-    lunch_out, lunch_in = punches[1].punch_time, punches[2].punch_time
-    if lunch_out >= lunch_in:
+    """Return the lunch pair used by the engine for this day.
+
+    The same pair drives the stored columns and the hour deduction, so they
+    can never disagree.  Days without a plausible break return no times.
+    """
+    lunch_out = getattr(calc, "lunch_out_at", None)
+    lunch_in = getattr(calc, "lunch_in_at", None)
+    if not lunch_out or not lunch_in or lunch_out >= lunch_in:
         return None, None
     return lunch_out, lunch_in
 

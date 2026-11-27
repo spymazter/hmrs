@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { Download, FileBarChart, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -49,6 +49,8 @@ export default function Attendance() {
   const canManage = has('attendance.manage')
   const canViewAll = has('employee.view')
   const [searchParams] = useSearchParams()
+  const location = useLocation()
+  const autoPreviewDone = useRef(false)
   const day = searchParams.get('date')
   const hasUrlDates = Boolean(searchParams.get('from') || searchParams.get('to') || day)
   const [tab, setTab] = useState('records')
@@ -60,7 +62,7 @@ export default function Attendance() {
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState('')
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(location.state?.notice || '')
   const [filters, setFilters] = useState({
     from_date: searchParams.get('from') || day || todayStr(),
     to_date: searchParams.get('to') || day || todayStr(),
@@ -138,6 +140,12 @@ export default function Attendance() {
       setRecomputePlan(r.data); setRecomputeModal(true)
     } catch (err) { setError(errorMessage(err)) } finally { setRecomputing(false) }
   }
+
+  useEffect(() => {
+    if (!canManage || autoPreviewDone.current || searchParams.get('recompute') !== '1') return
+    autoPreviewDone.current = true
+    openRecompute()
+  }, [canManage, searchParams])
 
   const applyRecompute = async () => {
     setRecomputing(true)

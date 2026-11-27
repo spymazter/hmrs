@@ -249,11 +249,15 @@ class DayCalculation:
     # Non-exported helper fields used by report builders.
     raw_punches: list[NormalizedPunch] = field(default_factory=list, repr=False)
     sessions: list[dict] = field(default_factory=list, repr=False)
+    lunch_out_at: datetime | None = field(default=None, repr=False)
+    lunch_in_at: datetime | None = field(default=None, repr=False)
 
     def as_dict(self, include_raw: bool = False) -> dict:
         data = asdict(self)
         data.pop("raw_punches", None)
         data.pop("sessions", None)
+        data.pop("lunch_out_at", None)
+        data.pop("lunch_in_at", None)
         if include_raw:
             data["punches"] = [p.as_dict() for p in self.raw_punches]
             data["punch_sessions"] = self.sessions
@@ -529,8 +533,52 @@ def debounce_punches(punches: Iterable[NormalizedPunch], minutes: int) -> list[N
     return kept
 
 
+LUNCH_GAP_MIN_MINUTES = 15
+LUNCH_GAP_MAX_MINUTES = 240
+_LUNCH_PAIR_UNSET = object()
+
+
+def _sequence_allows_lunch(sequence: list[str] | None) -> bool:
+    labels = sequence or LUNCH_SEQUENCE
+    if len(labels) != 4:
+        return False
+    try:
+        return labels.index("Lunch OUT") < labels.index("Lunch IN")
+    except ValueError:
+        return False
+
+
+def detect_lunch_pair(
+    punches: list[NormalizedPunch],
+    lunch_minutes: int,
+    sequence: list[str] | None = None,
+) -> tuple[NormalizedPunch, NormalizedPunch] | None:
+    """Find the real break between the day's first and last punch.
+
+    The device sends same-direction duplicates minutes apart, so fixed punch
+    positions are not reliable.  Consider the gaps between interior punches,
+    keep plausible break lengths, and choose the one closest to the configured
+    lunch duration.  Returns the punch pair that bounds that gap.
+    """
+    if lunch_minutes <= 0 or len(punches) < 3 or not _sequence_allows_lunch(sequence):
+        return None
+    interior = punches[1:-1]
+    candidates = []
+    for left, right in zip(interior, interior[1:]):
+        minutes = (right.punch_time - left.punch_time).total_seconds() / 60
+        if LUNCH_GAP_MIN_MINUTES <= minutes <= LUNCH_GAP_MAX_MINUTES:
+            candidates.append((abs(minutes - lunch_minutes), left.punch_time, left, right))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return candidates[0][2], candidates[0][3]
+
+
 def pair_punches(
-    punches: list[NormalizedPunch], mode: str = "strict", lunch_minutes: int = 0
+    punches: list[NormalizedPunch],
+    mode: str = "strict",
+    lunch_minutes: int = 0,
+    lunch_pair: tuple[NormalizedPunch, NormalizedPunch] | None = _LUNCH_PAIR_UNSET,
 ) -> tuple[list[dict], float, float]:
     """Return work sessions, net hours and break hours.
 
@@ -539,30 +587,35 @@ def pair_punches(
     device duplicates, so the day is one session from the first IN to the last
     OUT.  ``first_last`` always uses the full span of the day.
 
-    When ``lunch_minutes`` is set and the day has exactly four punches, the
-    punches are read positionally as IN → Lunch OUT → Lunch IN → Exit and the
-    configured lunch duration is deducted, regardless of how the device
-    labelled the middle punches.
+    When ``lunch_pair`` is supplied by :func:`detect_lunch_pair`, the two spans
+    around that break form the sessions and the configured lunch duration is
+    deducted from the day's span, regardless of how the device labelled them.
+    Callers that omit the pair get automatic detection; callers that pass
+    ``None`` explicitly get standard pairing (used when a rule is disabled).
     """
     if not punches:
         return [], 0.0, 0.0
 
-    if lunch_minutes > 0 and mode != "first_last" and len(punches) == 4:
-        job_in, lunch_out, lunch_in, exit_punch = punches
-        if lunch_out.punch_time < lunch_in.punch_time:
-            sessions = []
-            for start, end in ((job_in, lunch_out), (lunch_in, exit_punch)):
-                span = max(0.0, (end.punch_time - start.punch_time).total_seconds())
-                sessions.append({
-                    "in": start.as_dict(), "out": end.as_dict(),
-                    "start": start.punch_time, "end": end.punch_time,
-                    "minutes": span / 60,
-                })
-            gross_seconds = max(
-                0.0, (exit_punch.punch_time - job_in.punch_time).total_seconds()
-            )
-            net_seconds = max(0.0, gross_seconds - lunch_minutes * 60)
-            return sessions, round2(net_seconds / 3600), round2(lunch_minutes / 60)
+    if lunch_pair is _LUNCH_PAIR_UNSET:
+        lunch_pair = detect_lunch_pair(punches, lunch_minutes) if lunch_minutes > 0 else None
+
+    if lunch_pair and lunch_minutes > 0 and mode != "first_last":
+        lunch_out, lunch_in = lunch_pair
+        sessions = []
+        for start, end in ((punches[0], lunch_out), (lunch_in, punches[-1])):
+            span = max(0.0, (end.punch_time - start.punch_time).total_seconds())
+            if span <= 0:
+                continue
+            sessions.append({
+                "in": start.as_dict(), "out": end.as_dict(),
+                "start": start.punch_time, "end": end.punch_time,
+                "minutes": span / 60,
+            })
+        gross_seconds = max(
+            0.0, (punches[-1].punch_time - punches[0].punch_time).total_seconds()
+        )
+        net_seconds = max(0.0, gross_seconds - lunch_minutes * 60)
+        return sessions, round2(net_seconds / 3600), round2(lunch_minutes / 60)
 
     if mode == "first_last":
         start, end = punches[0].punch_time, punches[-1].punch_time
@@ -902,8 +955,12 @@ class AttendanceEngine:
         cfg = self.config
         normalized = debounce_punches(punches, cfg.punch_debounce_minutes)
         lunch_minutes = self.lunch_break.effective_minutes(shift)
+        lunch_pair = detect_lunch_pair(
+            normalized, lunch_minutes, self.lunch_break.sequence
+        )
         sessions, net_hours, break_hours = pair_punches(
-            normalized, cfg.pairing_mode, lunch_minutes=lunch_minutes
+            normalized, cfg.pairing_mode, lunch_minutes=lunch_minutes,
+            lunch_pair=lunch_pair,
         )
         # A single punch is not an in/out pair.  Keep it in the column that
         # matches its direction and leave the other blank instead of repeating
@@ -1104,6 +1161,8 @@ class AttendanceEngine:
             remarks=remarks,
             raw_punches=normalized,
             sessions=punches_with_sessions,
+            lunch_out_at=lunch_pair[0].punch_time if lunch_pair else None,
+            lunch_in_at=lunch_pair[1].punch_time if lunch_pair else None,
         )
 
     def _ot_minutes(self, minutes: float) -> float:

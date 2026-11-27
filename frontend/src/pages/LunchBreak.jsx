@@ -1,20 +1,27 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Coffee, Pencil, RefreshCw, Save } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Card, DataTable, Field, Modal, Notice, PageHead } from '../components/ui'
 
 const DEFAULT_SEQUENCE = ['IN', 'Lunch OUT', 'Lunch IN', 'Exit']
+const isoDate = (value) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+const previewRange = () => {
+  const to = new Date()
+  const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - 29)
+  return `/attendance?recompute=1&from=${isoDate(from)}&to=${isoDate(to)}`
+}
 
 export default function LunchBreak() {
   const { has } = useAuth()
+  const navigate = useNavigate()
   const canManage = has('shift.manage')
   const canRecompute = has('attendance.manage')
   const [config, setConfig] = useState({ enabled: true, duration_minutes: 60, sequence: DEFAULT_SEQUENCE, shifts: [] })
   const [draft, setDraft] = useState({ enabled: true, duration_minutes: 60 })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [recomputing, setRecomputing] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [modal, setModal] = useState(false)
@@ -43,18 +50,10 @@ export default function LunchBreak() {
         duration_minutes: Math.max(0, Number(draft.duration_minutes) || 0),
       })
       setConfig(r.data)
-      setNotice('Lunch break rule saved. Use Recompute attendance to apply it to history.')
+      navigate(previewRange(), {
+        state: { notice: 'Lunch break rule saved. Review the proposed attendance changes below.' },
+      })
     } catch (err) { setError(errorMessage(err)) } finally { setSaving(false) }
-  }
-
-  const recompute = async () => {
-    setRecomputing(true)
-    setError('')
-    setNotice('')
-    try {
-      const r = await api.post('/attendance/recompute-all')
-      setNotice(r.data.message || 'Attendance recomputed')
-    } catch (err) { setError(errorMessage(err)) } finally { setRecomputing(false) }
   }
 
   const openEdit = (row) => {
@@ -83,9 +82,9 @@ export default function LunchBreak() {
       <Notice type="success">{notice}</Notice>
 
       <Card title="Lunch break rule"
-        subtitle="The device records most punches as IN. The day's punches are read in order, so lunch is identified by position, not by device label.">
+        subtitle="The device records duplicate punches and unreliable directions. Lunch is identified by the plausible break between punches, not by their fixed positions or labels.">
         <div className="form-grid">
-          <Field label="Enable lunch deduction" hint="When on, a four-punch day has the configured lunch duration deducted.">
+          <Field label="Enable lunch deduction" hint="When off, no lunch duration is deducted and the lunch columns stay blank.">
             <label className="inline-check">
               <input type="checkbox" checked={!!draft.enabled} disabled={!canManage}
                 onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
@@ -97,7 +96,7 @@ export default function LunchBreak() {
               value={draft.duration_minutes}
               onChange={(e) => setDraft({ ...draft, duration_minutes: e.target.value })} />
           </Field>
-          <Field label="Punch sequence" full hint="1st punch = job IN, 2nd = Lunch OUT, 3rd = Lunch IN, 4th = end of day / Exit.">
+          <Field label="Expected punch sequence" full hint="The first and last punches are job IN and Exit. The break is the plausible gap between them; short duplicate gaps are ignored.">
             <div className="lunch-sequence">
               {sequence.map((label, index) => (
                 <div className="lunch-step" key={`${index}-${label}`}>
@@ -112,8 +111,8 @@ export default function LunchBreak() {
           {canManage && <button className="btn btn-primary" disabled={saving} onClick={saveRule}>
             <Save size={15} /> Save rule
           </button>}
-          {canRecompute && <button className="btn btn-outline" disabled={recomputing} onClick={recompute}>
-            <RefreshCw size={15} /> {recomputing ? 'Recomputing…' : 'Recompute attendance'}
+          {canRecompute && <button className="btn btn-outline" onClick={() => navigate(previewRange())}>
+            <RefreshCw size={15} /> Review attendance changes
           </button>}
         </div>
       </Card>
