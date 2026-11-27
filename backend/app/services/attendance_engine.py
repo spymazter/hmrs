@@ -504,7 +504,12 @@ def _is_out(punch: NormalizedPunch) -> bool:
 
 
 def debounce_punches(punches: Iterable[NormalizedPunch], minutes: int) -> list[NormalizedPunch]:
-    """Drop repeated same-direction punches inside the debounce window."""
+    """Drop duplicate punches inside the debounce window.
+
+    Repeated same-direction punches are duplicates.  An OUT punch less than
+    the debounce window after an IN punch is also a duplicate: arrival and exit
+    must be at least that far apart before they form a real work session.
+    """
     ordered = sorted(punches, key=lambda p: (p.punch_time, p.id))
     if minutes <= 0:
         return ordered
@@ -513,10 +518,12 @@ def debounce_punches(punches: Iterable[NormalizedPunch], minutes: int) -> list[N
     for punch in ordered:
         if kept:
             previous = kept[-1]
-            if (
-                previous.direction == punch.direction
-                and timedelta(0) <= punch.punch_time - previous.punch_time <= window
-            ):
+            delta = punch.punch_time - previous.punch_time
+            same_direction = previous.direction == punch.direction
+            quick_out = previous.direction == "IN" and punch.direction == "OUT"
+            if same_direction and timedelta(0) <= delta <= window:
+                continue
+            if quick_out and timedelta(0) <= delta < window:
                 continue
         kept.append(punch)
     return kept
@@ -849,8 +856,16 @@ class AttendanceEngine:
         sessions, net_hours, break_hours = pair_punches(
             normalized, cfg.pairing_mode, lunch_minutes=lunch_minutes
         )
-        first_in = normalized[0].punch_time if normalized else None
-        last_out = normalized[-1].punch_time if normalized else None
+        # A single punch is not an in/out pair.  Keep it in the column that
+        # matches its direction and leave the other blank instead of repeating
+        # the same timestamp in both Check in and Check out.
+        if len(normalized) == 1:
+            only = normalized[0]
+            first_in = only.punch_time if only.direction == "IN" else None
+            last_out = only.punch_time if only.direction == "OUT" else None
+        else:
+            first_in = normalized[0].punch_time if normalized else None
+            last_out = normalized[-1].punch_time if normalized else None
         gross_hours = round2((last_out - first_in).total_seconds() / 3600) if first_in and last_out and len(normalized) > 1 else 0.0
 
         planned_start, planned_end = self.shift_window(day, shift)
