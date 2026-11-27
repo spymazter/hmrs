@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
+import BirthdayAmbience, { isBirthdayToday } from '../components/BirthdayAmbience'
 import { DOCUMENT_SIZE_MB, prepareDocument } from '../utils/documentUpload'
 import {
   Badge, Card, DataTable, Field, Modal, Notice, PageHead, SearchableSelect, Stat,
@@ -200,7 +201,8 @@ export default function MyPortal() {
     KYC_CATEGORIES.some((category) => category.value === document.category))
 
   return (
-    <>
+    <div className="birthday-page">
+      {isBirthdayToday(profile?.date_of_birth) && <BirthdayAmbience subtle />}
       <PageHead title="My portal" subtitle="Your profile, KYC documents, attendance and salary slips"
         actions={<>
           <button className="btn btn-outline" disabled={!payslips.length} onClick={downloadAll}><Download size={15} /> Download all slips</button>
@@ -377,6 +379,6 @@ export default function MyPortal() {
           ))}
         </div>
       </Modal>
-    </>
+    </div>
   )
 }

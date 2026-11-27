@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { CalendarCheck2, ClipboardList, Clock3, Download, FileText, Megaphone, TrendingUp, UserCheck, UserX, Users, Wallet } from 'lucide-react'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
+import BirthdayAmbience, { isBirthdayToday } from '../components/BirthdayAmbience'
 import { Badge, Card, Notice, PageHead, Stat, fmtDate, todayStr } from '../components/ui'
 
 export default function Dashboard() {
@@ -11,12 +12,20 @@ export default function Dashboard() {
   const [data, setData] = useState(null)
   const [circulars, setCirculars] = useState([])
   const [error, setError] = useState('')
+  const [birthdayToday, setBirthdayToday] = useState(false)
 
   useEffect(() => {
     api.get('/dashboard/summary')
       .then((res) => { setData(res.data); setCirculars(res.data.circulars || []) })
       .catch((err) => setError(err.response?.data?.detail || 'Unable to load dashboard'))
   }, [])
+
+  useEffect(() => {
+    if (!user?.employee_id) return
+    api.get('/employees/me')
+      .then((res) => setBirthdayToday(isBirthdayToday(res.data.date_of_birth)))
+      .catch(() => {})
+  }, [user?.employee_id])
 
   const markViewed = async (circular) => {
     if (circular.viewed_by_me) return
@@ -54,7 +63,8 @@ export default function Dashboard() {
   ]
 
   return (
-    <>
+    <div className="birthday-page">
+      {birthdayToday && <BirthdayAmbience subtle />}
       <PageHead
         title={`Good day, ${(user?.full_name || user?.username || 'there').split(' ')[0]}`}
         subtitle="Here is what is happening across your workplace today."
@@ -181,6 +191,6 @@ export default function Dashboard() {
           </div>
         </>
       )}
-    </>
+    </div>
   )
 }

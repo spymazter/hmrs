@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CakeSlice, CalendarDays, Sparkles } from 'lucide-react'
 import api, { errorMessage } from '../api'
+import BirthdayAmbience from '../components/BirthdayAmbience'
 import { Badge, Card, Notice, PageHead } from '../components/ui'
 
 function label(iso) {
@@ -51,7 +52,8 @@ export default function Birthdays() {
   }, [])
 
   return (
-    <>
+    <div className="birthday-page">
+      {data?.today?.length > 0 && <BirthdayAmbience />}
       <PageHead title="Happy Birthday" subtitle="Upcoming birthdays this week and this month" />
       <Notice type="error">{error}</Notice>
 
@@ -87,6 +89,6 @@ export default function Birthdays() {
           </div>
         </>
       )}
-    </>
+    </div>
   )
 }
