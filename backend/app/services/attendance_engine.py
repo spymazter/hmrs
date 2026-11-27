@@ -759,6 +759,27 @@ class AttendanceEngine:
         """
         if not shifts or not punches:
             return None
+
+        # A completed day shift must not lose its evening exit to a night
+        # shift simply because that exit is closer to the night start.  Collect
+        # punches that plausibly start a non-night group shift on this date.
+        day_punches = sorted(
+            (p for p in punches if p.punch_time.date() == day),
+            key=lambda p: p.punch_time,
+        )
+        day_anchors: list[datetime] = []
+        for shift in shifts:
+            if self.is_night(shift):
+                continue
+            planned_start, _ = self.shift_window(day, shift)
+            scan_start, scan_end = self.punch_window(day, shift)
+            for punch in day_punches:
+                if not (scan_start <= punch.punch_time < scan_end):
+                    continue
+                start_delta = abs((punch.punch_time - planned_start).total_seconds()) / 60
+                if start_delta <= AUTO_SHIFT_MATCH_MINUTES:
+                    day_anchors.append(punch.punch_time)
+
         best_shift: Shift | None = None
         best_score: tuple[float, float, int] | None = None
         for shift in shifts:
@@ -777,6 +798,10 @@ class AttendanceEngine:
             if not anchors:
                 continue
             first = min(anchors, key=lambda punch: punch.punch_time).punch_time
+            if self.is_night(shift) and any(anchor < first for anchor in day_anchors):
+                # The evening punch is the exit from a day shift already
+                # worked on this date, not the start of a night shift.
+                continue
             start_delta = abs((first - planned_start).total_seconds()) / 60
             if start_delta > AUTO_SHIFT_MATCH_MINUTES:
                 continue
