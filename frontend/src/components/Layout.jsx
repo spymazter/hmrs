@@ -244,8 +244,8 @@ export default function Layout() {
           <Field label="Gender"><input value={onboarding.gender} onChange={(e) => setOnboarding({ ...onboarding, gender: e.target.value })} /></Field>
           <Field label="First name"><input value={onboarding.first_name} onChange={(e) => setOnboarding({ ...onboarding, first_name: e.target.value })} /></Field>
           <Field label="Last name"><input value={onboarding.last_name} onChange={(e) => setOnboarding({ ...onboarding, last_name: e.target.value })} /></Field>
-          <Field label="Date of birth" hint={onboarding.date_of_birth ? 'Locked — contact HR or admin to change' : undefined}>
-            <input type="date" disabled={Boolean(onboarding.date_of_birth)} value={onboarding.date_of_birth} onChange={(e) => setOnboarding({ ...onboarding, date_of_birth: e.target.value })} />
+          <Field label="Date of birth" hint="You can correct this any time">
+            <input type="date" value={onboarding.date_of_birth} onChange={(e) => setOnboarding({ ...onboarding, date_of_birth: e.target.value })} />
           </Field>
           <Field label="Email"><input type="email" value={onboarding.email} onChange={(e) => setOnboarding({ ...onboarding, email: e.target.value })} /></Field>
           <Field label="Phone"><input value={onboarding.phone} onChange={(e) => setOnboarding({ ...onboarding, phone: e.target.value })} /></Field>

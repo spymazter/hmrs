@@ -90,12 +90,12 @@ def test_employee_can_update_dob_and_nominee_details():
         db.close()
 
 
-def test_employee_cannot_change_dob_after_it_is_set():
+def test_employee_can_change_dob_after_it_is_set():
     _, Session = sample_db()
     db = Session()
     try:
         role = _role(db, "Employee", ["self.portal", "document.view"])
-        employee = _employee(db, "SELF-DOB", "9004", "Locked")
+        employee = _employee(db, "SELF-DOB", "9004", "Editable")
         employee.date_of_birth = date(1990, 1, 2)
         user = _user(db, "self-dob-user", role, employee)
 
@@ -105,9 +105,30 @@ def test_employee_cannot_change_dob_after_it_is_set():
             user,
         )
 
-        assert updated.date_of_birth == date(1990, 1, 2)
+        assert updated.date_of_birth == date(2000, 5, 6)
         assert updated.phone == "9999999999"
-        assert db.get(Employee, employee.id).date_of_birth == date(1990, 1, 2)
+        assert db.get(Employee, employee.id).date_of_birth == date(2000, 5, 6)
+    finally:
+        db.close()
+
+
+def test_blank_dob_does_not_clear_existing_value():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        role = _role(db, "Employee", ["self.portal", "document.view"])
+        employee = _employee(db, "SELF-BLANK-DOB", "9011", "Blank")
+        employee.date_of_birth = date(1990, 1, 2)
+        user = _user(db, "self-blank-dob-user", role, employee)
+
+        updated = employees_router.update_my_profile(
+            EmployeeSelfUpdate(date_of_birth=None, phone="8888888888"),
+            db,
+            user,
+        )
+
+        assert updated.date_of_birth == date(1990, 1, 2)
+        assert updated.phone == "8888888888"
     finally:
         db.close()
 

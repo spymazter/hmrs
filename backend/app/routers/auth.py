@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import (
-    can, create_access_token, get_current_user, hash_password, is_admin, user_to_dict,
-    verify_password,
+    create_access_token, get_current_user, hash_password, user_to_dict, verify_password,
 )
 from app.database import get_db
 from app.models import Employee, User
@@ -80,10 +79,6 @@ def complete_onboarding(
         raise HTTPException(400, "First name is required")
     if not cleaned.get("date_of_birth"):
         raise HTTPException(400, "Date of birth is required")
-
-    # Once recorded, only HR/admin may change the DOB.
-    if employee.date_of_birth is not None and not (is_admin(user) or can(user, "employee.edit")):
-        cleaned.pop("date_of_birth", None)
 
     for key, value in cleaned.items():
         setattr(employee, key, value)

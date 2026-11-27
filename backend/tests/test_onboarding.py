@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import HTTPException
 
 from app.auth import hash_password, verify_password
@@ -50,6 +52,23 @@ def test_onboarding_blank_dob_gives_friendly_error_not_validation_crash():
         db.refresh(user)
         assert verify_password("current-pass", user.password_hash)
         assert user.must_change_password is True
+    finally:
+        db.close()
+
+
+def test_onboarding_can_correct_existing_dob():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        user, employee = _employee_user(db)
+        employee.date_of_birth = date(1985, 2, 3)
+        payload = OnboardingRequest(
+            old_password="current-pass", new_password="new-secret-1",
+            first_name="Test", last_name="User", date_of_birth="1991-07-09",
+        )
+        auth_router.complete_onboarding(payload, user, db)
+        db.refresh(employee)
+        assert str(employee.date_of_birth) == "1991-07-09"
     finally:
         db.close()
 

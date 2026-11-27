@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from app.auth import can, get_current_user, hash_password, is_admin, require
+from app.auth import can, get_current_user, hash_password, require
 from app.database import get_db
 from app.models import Employee, Role, User
 from app.schemas import (
@@ -130,8 +130,8 @@ def update_my_profile(
     """Update only personal details for the logged-in employee.
 
     Username, employee code, status, device UID, department, designation,
-    shift and manager are intentionally not accepted here. Date of birth can
-    be entered once, then only HR/admin (employee.edit) may change it.
+    shift and manager are intentionally not accepted here. Date of birth may
+    be entered or corrected at any time; an empty value leaves it unchanged.
     """
     if not user.employee_id:
         raise HTTPException(404, "No employee profile is linked to this account")
@@ -140,12 +140,8 @@ def update_my_profile(
         raise HTTPException(404, "Employee profile not found")
 
     data = payload.model_dump(exclude_unset=True)
-    if "date_of_birth" in data:
-        privileged = is_admin(user) or can(user, "employee.edit")
-        if employee.date_of_birth is not None and not privileged:
-            data.pop("date_of_birth")
-        elif data["date_of_birth"] in (None, ""):
-            data.pop("date_of_birth")
+    if "date_of_birth" in data and data["date_of_birth"] in (None, ""):
+        data.pop("date_of_birth")
     for key, value in data.items():
         setattr(employee, key, value.strip() if isinstance(value, str) else value)
 
