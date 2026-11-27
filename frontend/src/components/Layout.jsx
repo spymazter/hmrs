@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3, BriefcaseBusiness, Building2, CakeSlice, CalendarCheck2, CalendarRange, ChevronDown, ClipboardList,
-  Coffee, FileBarChart, FileText, Fingerprint, LayoutDashboard, LogOut, MapPin, Megaphone, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
+  Coffee, FileBarChart, FileText, Fingerprint, History, LayoutDashboard, LogOut, MapPin, Megaphone, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -35,6 +35,7 @@ const NAV = [
   { section: 'Payroll & security', items: [
     { to: '/payroll', label: 'Payroll & slips', icon: Wallet, perm: ['payroll.view', 'payslip.view'] },
     { to: '/access', label: 'Roles & access', icon: ShieldCheck, perm: ['access.view'] },
+    { to: '/audit', label: 'Audit trail', icon: History, perm: ['access.manage'] },
   ] },
   { section: 'Self service', items: [
     { to: '/portal', label: 'My portal', icon: UserCircle2, perm: ['self.portal'] },
@@ -61,6 +62,7 @@ const TITLES = {
   '/devices': ['Biometric devices', 'Device connection and punch synchronization'],
   '/payroll': ['Payroll', 'Salary structures, processing and payslips'],
   '/access': ['Roles & access', 'Users, roles and combined role groups'],
+  '/audit': ['Audit trail', 'Who changed what across the application'],
   '/portal': ['My portal', 'Your attendance, leaves and salary slips'],
   '/notice-board': ['Notice board', 'Circulars issued by HR for employees'],
 }

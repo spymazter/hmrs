@@ -737,6 +737,8 @@ class PayslipOut(ORMBase):
     employee_code: Optional[str] = None
     period_id: int
     period_name: Optional[str] = None
+    period_month: Optional[int] = None
+    period_year: Optional[int] = None
     total_days: int
     working_days: int
     days_present: float
@@ -756,3 +758,16 @@ class PayslipOut(ORMBase):
     net_salary: float
     status: str
     generated_at: Optional[datetime] = None
+
+
+# Audit ----------------------------------------------------------------------
+class AuditLogOut(BaseModel):
+    id: int
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+    action: str
+    entity: Optional[str] = None
+    entity_id: Optional[int] = None
+    details: Optional[dict[str, Any]] = None
+    created_at: Optional[datetime] = None

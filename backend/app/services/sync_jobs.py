@@ -5,6 +5,7 @@ from datetime import datetime
 
 from app.database import SessionLocal
 from app.models import Device, DeviceSyncJob
+from app.services.audit import log_system_action
 from app.services.biometric import sync_device
 
 MAX_LOG_LINES = 300
@@ -50,6 +51,21 @@ def _run_job(job_id: int, device_id: int, full_history: bool = False):
 
         result = sync_device(db, device, progress=progress, full_history=full_history)
         success = bool(result.get("success"))
+        if success and (result.get("new_punches") or result.get("new_employees")):
+            log_system_action(
+                db,
+                "system.device_sync",
+                "punch_log",
+                details={
+                    "device_id": device_id,
+                    "job_id": job_id,
+                    "full_history": full_history,
+                    "new_punches": result.get("new_punches", 0),
+                    "new_employees": result.get("new_employees", 0),
+                    "message": result.get("message", ""),
+                },
+            )
+            db.commit()
         # On failure sync_device() already logged the detailed error; only add
         # a final line for successful runs so the log stays readable.
         _write_job(

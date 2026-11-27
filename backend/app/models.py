@@ -727,6 +727,14 @@ class Payslip(Base):
     def period_name(self):
         return self.period.name if self.period else None
 
+    @property
+    def period_month(self):
+        return self.period.month if self.period else None
+
+    @property
+    def period_year(self):
+        return self.period.year if self.period else None
+
     __table_args__ = (UniqueConstraint("employee_id", "period_id", name="uq_payslip"),)
 
 
@@ -747,6 +755,7 @@ class AuditLog(Base):
     entity_id = Column(Integer)
     details = Column(JSON)
     created_at = Column(DateTime, default=datetime.now)
+    user = relationship("User")
 
 
 # Register global identity guards.  Importing models always installs them, so

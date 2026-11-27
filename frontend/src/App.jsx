@@ -19,6 +19,7 @@ import Reports from './pages/Reports'
 import Payroll from './pages/Payroll'
 import Leaves from './pages/Leaves'
 import AccessControl from './pages/AccessControl'
+import AuditTrail from './pages/AuditTrail'
 import MyPortal from './pages/MyPortal'
 
 function Protected() {
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="/devices" element={<Guard perm={['device.view']}><Devices /></Guard>} />
             <Route path="/payroll" element={<Guard perm={['payroll.view', 'payslip.view']}><Payroll /></Guard>} />
             <Route path="/access" element={<Guard perm={['access.view']}><AccessControl /></Guard>} />
+            <Route path="/audit" element={<Guard perm={['access.manage']}><AuditTrail /></Guard>} />
             <Route path="/portal" element={<MyPortal />} />
           </Route>
         </Route>

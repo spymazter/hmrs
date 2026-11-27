@@ -22,18 +22,12 @@ const KYC_CATEGORIES = [
   { value: 'nominee_aadhaar', label: 'Nominee Aadhaar card' },
 ]
 
-const MONTH_NUMBERS = {
-  January: 1, February: 2, March: 3, April: 4, May: 5, June: 6,
-  July: 7, August: 8, September: 9, October: 10, November: 11, December: 12,
-}
 const DOWNLOAD_FROM = { month: 10, year: 2026 }
 
 function isFromDownloadMonth(slip) {
-  const match = /^([A-Za-z]+)\s+(\d{4})$/.exec(slip.period_name || '')
-  if (!match) return false
-  const month = MONTH_NUMBERS[match[1]]
-  if (!month) return false
-  const year = Number(match[2])
+  const month = slip.period_month
+  const year = slip.period_year
+  if (!month || !year) return false
   return year > DOWNLOAD_FROM.year || (year === DOWNLOAD_FROM.year && month >= DOWNLOAD_FROM.month)
 }
 
