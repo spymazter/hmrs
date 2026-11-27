@@ -25,6 +25,8 @@ export default function Leaves() {
   const [modal, setModal] = useState(false)
   const [quotaFile, setQuotaFile] = useState(null)
   const [holidayFile, setHolidayFile] = useState(null)
+  const [rhListFile, setRhListFile] = useState(null)
+  const [ghListFile, setGhListFile] = useState(null)
   const [refreshingReports, setRefreshingReports] = useState(false)
   const [form, setForm] = useState({ employee_id: user?.employee_id || '', leave_type_id: '', from_date: todayStr(), to_date: todayStr(), reason: '', is_full_day: true, restricted_holiday_id: '' })
   const [quotaForm, setQuotaForm] = useState({ employee_id: '', leave_type_id: '', days: '' })
@@ -106,6 +108,31 @@ export default function Leaves() {
     setRefreshingReports(true)
     return api.post(`/leaves/holiday-list/recompute?year=${targetYear}`).then((r) => r.data)
       .finally(() => setRefreshingReports(false))
+  }
+
+  const uploadDedicatedList = (kind, file, label) => {
+    if (!file) { setError(`Choose a ${label} file first`); return }
+    const body = new FormData()
+    body.append('year', String(year))
+    body.append('kind', kind)
+    body.append('file', file)
+    report(
+      api.post('/leaves/holiday-list/upload', body).then((r) => r.data).then(async (result) => {
+        try {
+          return { ...result, refreshed: await refreshReports(result.year) }
+        } catch (err) {
+          return { ...result, refreshError: errorMessage(err) }
+        }
+      }),
+      (result) => {
+        const count = kind === 'RH'
+          ? `${result.rh_created} added, ${result.rh_updated} updated`
+          : `${result.holiday_created} added, ${result.holiday_updated} updated`
+        const base = `${label} uploaded for ${result.year}: ${count}${result.skipped.length ? ` · ${result.skipped.length} row(s) skipped` : ''}`
+        if (result.refreshError) return `${base} · reports refresh failed: ${result.refreshError}`
+        return `${base} · ${result.refreshed?.applied ?? 0} report row(s) refreshed`
+      },
+    )
   }
 
   const uploadHoliday = () => {
@@ -214,14 +241,36 @@ export default function Leaves() {
             ]} />
           </Card>
 
-          <Card title="Yearly holiday list" subtitle={`Upload the ${year} list once a year; RH is optional, Holiday is compulsory.`} style={{ marginTop: 16 }}>
+          <Card title="Yearly holiday lists" subtitle={`Upload the ${year} lists once a year; RH (restricted) is optional, GH (gazetted) is compulsory.`} style={{ marginTop: 16 }}>
             <div className="form-grid">
               <Field label="List year"><input type="number" min="2000" max="2100" value={year} onChange={(e) => setYear(Number(e.target.value) || currentYear)} /></Field>
               <Field label="RH date"><input type="date" value={rhForm.holiday_date} onChange={(e) => setRhForm({ ...rhForm, holiday_date: e.target.value })} /></Field>
               <Field label="RH name"><input value={rhForm.name} onChange={(e) => setRhForm({ ...rhForm, name: e.target.value })} placeholder="e.g. Diwali RH" /></Field>
               <Field label="Reason" full><input value={rhForm.reason} onChange={(e) => setRhForm({ ...rhForm, reason: e.target.value })} /></Field>
               <div style={{ display: 'flex', alignItems: 'end' }}><button className="btn btn-primary" onClick={saveHoliday}>Add RH</button></div>
-              <Field label="Upload yearly list (CSV/XLSX)" full>
+              <Field label="Upload restricted holidays (RH)" full>
+                <div className="toolbar">
+                  <input type="file" accept=".csv,.xlsx,.xlsm" onChange={(e) => setRhListFile(e.target.files?.[0] || null)} />
+                  <button className="btn btn-outline" onClick={() => uploadDedicatedList('RH', rhListFile, 'RH list')}><Upload size={14} /> Upload RH list</button>
+                  <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=csv&year=${year}&kind=RH`, 'restricted_holidays_template.csv')}><Download size={14} /> RH CSV template</button>
+                  <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=xlsx&year=${year}&kind=RH`, 'restricted_holidays_template.xlsx')}><Download size={14} /> RH XLSX template</button>
+                </div>
+                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  Columns: <strong>Date, Name, Year, Reason</strong>. Dates outside {year} are skipped; existing dates are updated, never deleted.
+                </p>
+              </Field>
+              <Field label="Upload gazetted holidays (GH)" full>
+                <div className="toolbar">
+                  <input type="file" accept=".csv,.xlsx,.xlsm" onChange={(e) => setGhListFile(e.target.files?.[0] || null)} />
+                  <button className="btn btn-outline" onClick={() => uploadDedicatedList('GH', ghListFile, 'GH list')}><Upload size={14} /> Upload GH list</button>
+                  <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=csv&year=${year}&kind=GH`, 'gazetted_holidays_template.csv')}><Download size={14} /> GH CSV template</button>
+                  <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=xlsx&year=${year}&kind=GH`, 'gazetted_holidays_template.xlsx')}><Download size={14} /> GH XLSX template</button>
+                </div>
+                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  Columns: <strong>Date, Name, Year, Reason</strong>. These are compulsory holidays and update attendance/report rows automatically.
+                </p>
+              </Field>
+              <Field label="Upload combined list (RH + GH)" full>
                 <div className="toolbar">
                   <input type="file" accept=".csv,.xlsx,.xlsm" onChange={(e) => setHolidayFile(e.target.files?.[0] || null)} />
                   <button className="btn btn-outline" onClick={uploadHoliday}><Upload size={14} /> Upload for {year}</button>
@@ -233,14 +282,14 @@ export default function Leaves() {
                   <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=xlsx&year=${year}`, 'holiday_list_template.xlsx')}><Download size={14} /> XLSX template</button>
                 </div>
                 <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                  Template <strong>Type</strong> column: <strong>RH</strong> = restricted holiday, <strong>Holiday</strong> = compulsory holiday.
+                  Template <strong>Type</strong> column: <strong>RH</strong> = restricted holiday, <strong>GH</strong> = gazetted holiday.
                   Rows for a different year are skipped; existing dates are updated, never deleted.
                   Upload refreshes attendance and report rows on those dates automatically; use <strong>Refresh reports</strong> to repeat it.
                 </p>
               </Field>
             </div>
             <DataTable rows={holidayList} emptyText="No holidays uploaded for this year" columns={[
-              { label: 'Type', render: (r) => <Badge status={r.type === 'RH' ? 'pending' : 'holiday'}>{r.type === 'RH' ? 'RH' : 'Holiday (compulsory)'}</Badge> },
+              { label: 'Type', render: (r) => <Badge status={r.type === 'RH' ? 'pending' : 'holiday'}>{r.type === 'RH' ? 'RH (restricted)' : 'GH (gazetted)'}</Badge> },
               { label: 'Date', render: (r) => <span className="strong">{r.holiday_date}</span> },
               { label: 'Name', render: (r) => r.name },
               { label: 'Year', render: (r) => r.year },

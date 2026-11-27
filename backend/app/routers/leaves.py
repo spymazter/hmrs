@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/leaves", tags=["Leaves"])
 
 QUOTA_HEADERS = ["Employee Code", "Employee Name", "Leave Type", "Leave Code", "Year", "Days"]
 RH_HEADERS = ["Date", "Name", "Year", "Reason"]
+GH_HEADERS = ["Date", "Name", "Year", "Reason"]
 HOLIDAY_LIST_HEADERS = ["Date", "Name", "Type", "Year", "Reason"]
 
 
@@ -86,11 +87,28 @@ def _holiday_kind(row: dict) -> str | None:
     if code in ("rh", "restrictedholiday", "restricted"):
         return "RH"
     if code in (
-        "holiday", "compulsoryholiday", "compulsory", "generalholiday",
+        "holiday", "gh", "gazetted", "gazzeted", "gazettedholiday",
+        "gazzetedholiday", "compulsoryholiday", "compulsory", "generalholiday",
         "publicholiday", "nationalholiday",
     ):
         return "Holiday"
     return None
+
+
+def _forced_list_kind(kind: str | None) -> str | None:
+    """Normalize a dedicated-list kind, or return None for the combined list."""
+    if not isinstance(kind, str) or not kind.strip():
+        # Direct function calls in tests pass FastAPI's Form(...) default.
+        return None
+    code = _norm(kind)
+    if code in ("rh", "restrictedholiday", "restricted"):
+        return "RH"
+    if code in (
+        "holiday", "gh", "gazetted", "gazzeted", "gazettedholiday",
+        "gazzetedholiday", "compulsoryholiday", "compulsory",
+    ):
+        return "Holiday"
+    raise HTTPException(400, "Invalid list kind — use RH or GH")
 
 
 def _parse_list_date(value) -> date | None:
@@ -468,13 +486,27 @@ def holiday_list_template(
     file_format: str = "csv",
     year: int | None = None,
     _=Depends(require("leave.quota.manage")),
+    kind: str | None = None,
 ):
+    kind = _forced_list_kind(kind)
+    if kind == "RH":
+        return _template(
+            RH_HEADERS, "restricted_holidays_template", file_format,
+            [{"Date": "", "Name": "Diwali RH", "Year": year or "",
+              "Reason": "Replace this row with a restricted holiday."}],
+        )
+    if kind == "Holiday":
+        return _template(
+            GH_HEADERS, "gazetted_holidays_template", file_format,
+            [{"Date": "", "Name": "Republic Day", "Year": year or "",
+              "Reason": "Replace this row with a gazetted holiday."}],
+        )
     guide_rows = [{
         "Date": "",
         "Name": "",
-        "Type": "RH or Holiday",
+        "Type": "RH or GH",
         "Year": year or "",
-        "Reason": "RH = restricted holiday, Holiday = compulsory holiday. Replace this row.",
+        "Reason": "RH = restricted holiday, GH = gazetted holiday. Replace this row.",
     }]
     return _template(HOLIDAY_LIST_HEADERS, "holiday_list_template", file_format, guide_rows)
 
@@ -485,13 +517,16 @@ async def upload_holiday_list(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(require("leave.quota.manage")),
+    kind: str | None = Form(None),
 ):
-    """Upload one yearly list and route each row to RH or Holiday.
+    """Upload one yearly list and route each row to RH or GH.
 
-    Existing rows are updated in place; nothing is deleted.
+    Pass kind=RH or kind=GH for a dedicated list; the combined list uses the
+    Type column. Existing rows are updated in place; nothing is deleted.
     """
     if year < 2000 or year > 2100:
         raise HTTPException(400, "Invalid year")
+    forced_kind = _forced_list_kind(kind)
     rows = await _read_rows(file)
     counts = {
         "rh_created": 0, "rh_updated": 0,
@@ -499,9 +534,9 @@ async def upload_holiday_list(
     }
     skipped: list[str] = []
     for index, row in enumerate(rows, 2):
-        kind = _holiday_kind(row)
-        if not kind:
-            skipped.append(f"Row {index}: Type must be RH or Holiday")
+        row_kind = forced_kind or _holiday_kind(row)
+        if not row_kind:
+            skipped.append(f"Row {index}: Type must be RH or GH")
             continue
         holiday_date = _parse_list_date(_value(row, "Date", "Holiday Date", "RH Date"))
         if not holiday_date:
@@ -525,7 +560,7 @@ async def upload_holiday_list(
             continue
         reason = _value(row, "Reason") or None
 
-        if kind == "RH":
+        if row_kind == "RH":
             item = db.query(RestrictedHoliday).filter(
                 RestrictedHoliday.holiday_date == holiday_date
             ).first()

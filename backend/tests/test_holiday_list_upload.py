@@ -53,8 +53,8 @@ def test_yearly_holiday_template_has_type_column_and_values():
         csv_response = leaves_router.holiday_list_template("csv", 2026, hr)
         csv_text = asyncio.run(_body(csv_response)).decode()
         assert csv_text.splitlines()[0] == "Date,Name,Type,Year,Reason"
-        assert "RH or Holiday" in csv_text
-        assert "compulsory holiday" in csv_text
+        assert "RH or GH" in csv_text
+        assert "gazetted holiday" in csv_text
 
         xlsx_response = leaves_router.holiday_list_template("xlsx", 2026, hr)
         book = load_workbook(
@@ -142,5 +142,67 @@ def test_xlsx_upload_and_legacy_rh_only_file():
             asyncio.run(leaves_router.upload_holiday_list(
                 1999, _upload("bad.csv", legacy), db, hr
             ))
+    finally:
+        db.close()
+
+
+def test_dedicated_rh_and_gh_templates():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        hr = _hr(db)
+        rh_text = asyncio.run(_body(
+            leaves_router.holiday_list_template("csv", 2026, hr, "RH")
+        )).decode()
+        assert rh_text.splitlines()[0] == "Date,Name,Year,Reason"
+        assert "restricted holiday" in rh_text
+
+        gh_text = asyncio.run(_body(
+            leaves_router.holiday_list_template("csv", 2026, hr, "GH")
+        )).decode()
+        assert gh_text.splitlines()[0] == "Date,Name,Year,Reason"
+        assert "gazetted holiday" in gh_text
+
+        combined = asyncio.run(_body(
+            leaves_router.holiday_list_template("csv", 2026, hr)
+        )).decode()
+        assert "Type" in combined.splitlines()[0]
+        assert "RH or GH" in combined
+        assert "GH = gazetted holiday" in combined
+    finally:
+        db.close()
+
+
+def test_dedicated_rh_and_gh_uploads_and_gh_type_code():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        hr = _hr(db)
+        rh = asyncio.run(leaves_router.upload_holiday_list(
+            2026,
+            _upload("rh.csv", b"Date,Name,Year,Reason\n05.01.2026,Diwali RH,2026,Optional\n"),
+            db, hr, "RH",
+        ))
+        assert rh["rh_created"] == 1
+        assert rh["holiday_created"] == 0
+        assert rh["skipped"] == []
+
+        gh = asyncio.run(leaves_router.upload_holiday_list(
+            2026,
+            _upload("gh.csv", b"Date,Name\n15.01.2026,Republic Day\n"),
+            db, hr, "GH",
+        ))
+        assert gh["holiday_created"] == 1
+        assert gh["rh_created"] == 0
+        assert gh["skipped"] == []
+
+        combined = asyncio.run(leaves_router.upload_holiday_list(
+            2026,
+            _upload("combined.csv", b"Date,Name,Type,Year\n15.01.2026,Republic Day,GH,2026\n"),
+            db, hr,
+        ))
+        assert combined["holiday_updated"] == 1
+        assert combined["rh_created"] == 0
+        assert db.query(Holiday).filter_by(holiday_date=date(2026, 1, 15)).count() == 1
     finally:
         db.close()
