@@ -70,6 +70,9 @@ export default function Attendance() {
   })
   const [punchModal, setPunchModal] = useState(false)
   const [punch, setPunch] = useState({ employee_id: '', punch_time: `${todayStr()}T09:00`, punch_type: 'in' })
+  const [recomputeModal, setRecomputeModal] = useState(false)
+  const [recomputePlan, setRecomputePlan] = useState(null)
+  const [recomputing, setRecomputing] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -120,12 +123,30 @@ export default function Attendance() {
     return () => clearTimeout(t)
   }, [filters, tab])
 
-  const recompute = async () => {
-    setError(''); setNotice('')
+  const recomputeParams = () => {
+    const params = new URLSearchParams({ from_date: filters.from_date, to_date: filters.to_date })
+    if (filters.employee_id) params.set('employee_id', filters.employee_id)
+    if (filters.designation_id) params.set('designation_id', filters.designation_id)
+    if (filters.status) params.set('status', filters.status)
+    return params
+  }
+
+  const openRecompute = async () => {
+    setError(''); setNotice(''); setRecomputing(true)
     try {
-      const r = await api.post(`/attendance/recompute?from_date=${filters.from_date}&to_date=${filters.to_date}`)
-      setNotice(r.data.message); load()
-    } catch (err) { setError(errorMessage(err)) }
+      const r = await api.post(`/attendance/recompute-view?${recomputeParams()}`)
+      setRecomputePlan(r.data); setRecomputeModal(true)
+    } catch (err) { setError(errorMessage(err)) } finally { setRecomputing(false) }
+  }
+
+  const applyRecompute = async () => {
+    setRecomputing(true)
+    try {
+      const params = recomputeParams()
+      params.set('apply', 'true')
+      const r = await api.post(`/attendance/recompute-view?${params}`)
+      setNotice(r.data.message); setRecomputeModal(false); setRecomputePlan(null); load()
+    } catch (err) { setError(errorMessage(err)) } finally { setRecomputing(false) }
   }
 
   const addPunch = async () => {
@@ -193,7 +214,9 @@ export default function Attendance() {
     <>
       <PageHead title="Attendance" subtitle="Raw punches and computed daily attendance records"
         actions={canManage ? <>
-          <button className="btn btn-outline" onClick={recompute}><RefreshCw size={15} /> Recompute</button>
+          {tab === 'records' && <button className="btn btn-outline" disabled={recomputing} onClick={openRecompute} title="Check current shift groups and rosters, then apply the changes">
+            <RefreshCw size={15} /> Recompute
+          </button>}
           <button className="btn btn-primary" onClick={() => setPunchModal(true)}><Plus size={15} /> Manual punch</button>
         </> : null} />
       <Notice type="error">{error}</Notice><Notice type="success">{notice}</Notice>
@@ -247,6 +270,31 @@ export default function Attendance() {
         </div>
         <DataTable columns={tab === 'records' ? recordColumns : logColumns} rows={rows} loading={loading} emptyText="No attendance data for this period" />
       </Card>
+
+      {canManage && <Modal open={recomputeModal} onClose={() => setRecomputeModal(false)} title="Recompute attendance"
+        footer={<>
+          <button className="btn btn-outline" onClick={() => setRecomputeModal(false)}>Cancel</button>
+          {!!recomputePlan?.changed && <button className="btn btn-primary" disabled={recomputing} onClick={applyRecompute}>
+            <RefreshCw size={15} /> Apply {recomputePlan.changed} change{recomputePlan.changed === 1 ? '' : 's'}
+          </button>}
+        </>}>
+        <div style={{ display: 'grid', gap: 12, fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
+          <p style={{ margin: 0 }}>
+            Checked <strong>{recomputePlan?.checked ?? 0}</strong> records in the current view against the latest shift groups and rosters.
+            {' '}<strong>{recomputePlan?.changed ?? 0}</strong> would change, {recomputePlan?.unchanged ?? 0} already match.
+          </p>
+          {!!recomputePlan?.changes?.length && <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            {recomputePlan.changes.map((change, i) => (
+              <div key={`${change.employee_id}-${change.date}-${i}`} style={{ padding: '8px 10px', borderBottom: i === recomputePlan.changes.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                <div className="strong">{change.employee_name} ({change.employee_code}) · {change.date} · {change.shift}</div>
+                <div>{change.fields.map(([label, before, after]) => `${label}: ${before} → ${after}`).join(' · ')}</div>
+              </div>
+            ))}
+          </div>}
+          {recomputePlan?.truncated && <p style={{ margin: 0 }}>Showing the first {recomputePlan.changes.length} changes.</p>}
+          <p style={{ margin: 0 }}>Night shifts are saved on their start date. Include that date in the range to update a night shift.</p>
+        </div>
+      </Modal>}
 
       {canManage && <Modal open={punchModal} onClose={() => setPunchModal(false)} title="Add manual punch"
         footer={<><button className="btn btn-outline" onClick={() => setPunchModal(false)}>Cancel</button><button className="btn btn-primary" onClick={addPunch}>Add punch</button></>}>

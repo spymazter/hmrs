@@ -10,7 +10,8 @@ from app.config import settings
 from app.database import get_db
 from app.models import AttendanceRecord, Designation, Employee, PunchLog, User
 from app.schemas import AttendanceListOut, AttendanceOut, PunchCreate, PunchListOut, PunchOut
-from app.services.attendance import recompute_records
+from app.services.attendance import apply_recompute, plan_recompute, recompute_records
+from app.services.attendance_engine import EngineFilters
 from app.services.report_formatters import to_pdf_bytes, to_xlsx_bytes
 from app.utils import parse_date
 
@@ -291,6 +292,57 @@ def recompute(
         raise HTTPException(400, "from_date and to_date are required")
     count = recompute_records(db, start, end, employee_id)
     return {"message": f"Recomputed {count} attendance records", "records": count}
+
+
+@router.post("/recompute-view")
+def recompute_view(
+    from_date: str,
+    to_date: str,
+    employee_id: int | None = None,
+    department_id: int | None = None,
+    designation_id: int | None = None,
+    status: str | None = None,
+    apply: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(require("attendance.manage")),
+):
+    """Preview or apply changes caused by current shift groups and rosters.
+
+    Call without ``apply`` to see what would change, then repeat with
+    ``apply=true`` to publish only those rows.  Night shifts are attributed
+    to their start date, so include that date in the range.
+    """
+    start = parse_date(from_date)
+    end = parse_date(to_date)
+    if not start or not end or start > end:
+        raise HTTPException(400, "A valid from_date and to_date are required")
+    if (end - start).days >= 366:
+        raise HTTPException(400, "Recompute range cannot exceed one year")
+
+    own_id = scoped_employee_id(user) if user else None
+    employee_ids = [own_id] if own_id else ([employee_id] if employee_id else None)
+    filters = EngineFilters(
+        employee_ids=employee_ids,
+        department_id=department_id,
+        designation_id=designation_id,
+    )
+    plan = plan_recompute(db, start, end, filters, status_filter=status)
+    applied = apply_recompute(db, plan) if apply and plan["changed"] else 0
+    return {
+        "message": (
+            f"Recomputed {applied} attendance record(s) for {start} to {end}"
+            if apply else
+            f"{plan['changed']} of {plan['checked']} record(s) need updating"
+        ),
+        "from_date": start.isoformat(),
+        "to_date": end.isoformat(),
+        "checked": plan["checked"],
+        "changed": plan["changed"],
+        "unchanged": plan["unchanged"],
+        "applied": applied,
+        "changes": plan["changes"],
+        "truncated": plan["truncated"],
+    }
 
 
 @router.post("/recompute-all")
