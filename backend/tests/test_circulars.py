@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from app.models import Employee, Role, User
+from app.routers import circulars as circulars_router
 from app.services import circulars
 from conftest import sample_db
 
@@ -101,5 +102,29 @@ def test_view_receipts_and_size_limit(monkeypatch, tmp_path):
 
         circulars.remove_notice(db, hr, notice.id)
         assert db.get(type(notice), notice.id) is None
+    finally:
+        db.close()
+
+
+def test_employee_notice_board_inbox(monkeypatch, tmp_path):
+    monkeypatch.setattr(circulars.settings, "CIRCULAR_DIR", str(tmp_path))
+    _, Session = sample_db()
+    db = Session()
+    try:
+        hr = _user(db, "hr", _role(db, "HR Manager", ["circular.manage"]))
+        employee_role = _role(db, "Employee", ["dashboard.view", "self.portal"])
+        owner = _employee(db, "CIRC004", "9004", "Inbox")
+        other = _employee(db, "CIRC005", "9005", "Other")
+        owner_user = _user(db, "inbox-owner", employee_role, employee=owner)
+        other_user = _user(db, "inbox-other", employee_role, employee=other)
+
+        notice_all = _upload(db, hr, "All staff notice")
+        notice_own = _upload(db, hr, "Personal notice", "employee", owner)
+
+        mine = circulars_router.circular_inbox(db, owner_user)
+        theirs = circulars_router.circular_inbox(db, other_user)
+        assert {row["id"] for row in mine} == {notice_all.id, notice_own.id}
+        assert {row["id"] for row in theirs} == {notice_all.id}
+        assert next(row for row in mine if row["id"] == notice_all.id)["viewed_by_me"] is False
     finally:
         db.close()

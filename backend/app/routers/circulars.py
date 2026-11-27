@@ -12,7 +12,7 @@ from app.database import get_db
 from app.models import CircularNotice, User
 from app.schemas import CircularNoticeOut
 from app.services.circulars import (
-    CircularError, mark_viewed, notice_path, query_all,
+    CircularError, mark_viewed, notice_path, query_all, query_for_user,
     remove_notice, save_notice, serialize, visible_notice,
 )
 
@@ -50,6 +50,15 @@ async def upload_circular(
     except CircularError as exc:
         raise _fail(exc) from exc
     return serialize(db, notice, user)
+
+
+@router.get("/inbox", response_model=list[CircularNoticeOut])
+def circular_inbox(
+    db: Session = Depends(get_db),
+    user: User = Depends(require("dashboard.view", "self.portal", "circular.manage")),
+):
+    """Employee notice board: notices for all staff plus personal notices."""
+    return [serialize(db, notice, user) for notice in query_for_user(db, user)]
 
 
 @router.get("/{circular_id}/download")

@@ -36,6 +36,7 @@ const NAV = [
   ] },
   { section: 'Self service', items: [
     { to: '/portal', label: 'My portal', icon: UserCircle2, perm: ['self.portal'] },
+    { to: '/notice-board', label: 'Notice board', icon: Megaphone, perm: ['self.portal', 'dashboard.view'] },
   ] },
 ]
 
@@ -58,6 +59,7 @@ const TITLES = {
   '/payroll': ['Payroll', 'Salary structures, processing and payslips'],
   '/access': ['Roles & access', 'Users, roles and combined role groups'],
   '/portal': ['My portal', 'Your attendance, leaves and salary slips'],
+  '/notice-board': ['Notice board', 'Circulars issued by HR for employees'],
 }
 
 export default function Layout() {
