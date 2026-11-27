@@ -57,7 +57,10 @@ def _record_query(
     department_id: int | None, status: str | None,
     designation_id: int | None = None,
 ):
-    query = db.query(AttendanceRecord).join(Employee)
+    query = db.query(AttendanceRecord).join(Employee).options(
+        joinedload(AttendanceRecord.employee).joinedload(Employee.designation),
+        joinedload(AttendanceRecord.shift),
+    )
     if start:
         query = query.filter(AttendanceRecord.record_date >= start)
     if end:
@@ -213,6 +216,7 @@ def export_attendance(
         columns = [
             {"key": "record_date", "label": "Date"},
             {"key": "employee", "label": "Employee"},
+            {"key": "designation_name", "label": "Designation"},
             {"key": "shift_name", "label": "Shift"},
             {"key": "check_in", "label": "Check in"},
             {"key": "lunch_out", "label": "Lunch check out"},
@@ -226,6 +230,7 @@ def export_attendance(
         rows = [{
             "record_date": item.record_date.isoformat() if item.record_date else "",
             "employee": f"{item.employee_name or ''} ({item.employee_code or ''})".strip(),
+            "designation_name": item.designation_name or "",
             "shift_name": item.shift_name or "",
             "check_in": item.check_in.strftime("%H:%M") if item.check_in else "",
             "lunch_out": item.lunch_out.strftime("%H:%M") if item.lunch_out else "",

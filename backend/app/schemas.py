@@ -476,6 +476,7 @@ class AttendanceOut(ORMBase):
     employee_id: int
     employee_name: Optional[str] = None
     employee_code: Optional[str] = None
+    designation_name: Optional[str] = None
     record_date: date
     shift_name: Optional[str] = None
     check_in: Optional[datetime] = None

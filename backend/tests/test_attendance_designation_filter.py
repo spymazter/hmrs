@@ -29,7 +29,7 @@ def _sample_with_designation():
 
 
 def test_designation_filter_on_daily_records():
-    engine, db, employee, _designation = _sample_with_designation()
+    engine, db, employee, designation = _sample_with_designation()
     try:
         all_rows = attendance.list_records(
             from_date=FROM, to_date=TO, limit=500, db=db, user=USER,
@@ -40,6 +40,7 @@ def test_designation_filter_on_daily_records():
         )
         assert all_rows["total"] > filtered["total"] > 0
         assert {row.employee_code for row in filtered["items"]} == {"SMP001"}
+        assert all(row.designation_name == designation.name for row in filtered["items"])
     finally:
         db.close()
         engine.dispose()
@@ -74,6 +75,7 @@ def test_designation_filter_on_excel_export():
         data_rows = [row for row in rows[1:] if str(row[0] or "").startswith("2026-")]
         assert data_rows
         assert all("SMP001" in (row[1] or "") for row in data_rows)
+        assert all(row[2] == designation.name for row in data_rows)
         params = list(workbook["Parameters"].iter_rows(values_only=True))
         assert ("Filter 1", f"Designation: {designation.name}") in params
     finally:

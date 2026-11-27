@@ -168,6 +168,7 @@ export default function Attendance() {
   const recordColumns = [
     { label: 'Date', render: (r) => <span className="strong">{r.record_date}</span> },
     { label: 'Employee', render: (r) => <><span className="strong">{r.employee_name}</span><span className="sub">{r.employee_code}</span></> },
+    { label: 'Designation', render: (r) => r.designation_name || '—' },
     { label: 'Shift', render: (r) => r.shift_name || '—' },
     { label: 'Check in', render: (r) => <span className="mono">{fmtTime(r.check_in)}</span> },
     { label: 'Lunch check out', render: (r) => <span className="mono">{fmtTime(r.lunch_out)}</span> },

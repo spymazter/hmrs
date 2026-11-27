@@ -420,6 +420,12 @@ class AttendanceRecord(Base):
         return self.employee.employee_code if self.employee else None
 
     @property
+    def designation_name(self):
+        if not self.employee or not self.employee.designation:
+            return None
+        return self.employee.designation.name
+
+    @property
     def shift_name(self):
         return self.shift.name if self.shift else None
 
