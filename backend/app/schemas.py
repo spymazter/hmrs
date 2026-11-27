@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class ORMBase(BaseModel):
@@ -395,6 +395,11 @@ class OnboardingRequest(ChangePasswordRequest):
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     address: Optional[str] = None
+
+    @field_validator("date_of_birth", mode="before")
+    @classmethod
+    def blank_date_is_missing(cls, value):
+        return None if value == "" else value
 
 
 class EmployeeOut(ORMBase, EmployeeBase):

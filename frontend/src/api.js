@@ -19,7 +19,15 @@ api.interceptors.response.use(
   },
 )
 
-export const errorMessage = (error) =>
-  error?.response?.data?.detail || error?.message || 'Something went wrong'
+export const errorMessage = (error) => {
+  const detail = error?.response?.data?.detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => (typeof item === 'string' ? item : item?.msg || JSON.stringify(item)))
+      .join('; ')
+  }
+  if (detail && typeof detail === 'object') return JSON.stringify(detail)
+  return detail || error?.message || 'Something went wrong'
+}
 
 export default api

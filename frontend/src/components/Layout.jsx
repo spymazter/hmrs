@@ -116,7 +116,12 @@ export default function Layout() {
     setOnboardingError('')
     setOnboardingBusy(true)
     try {
-      const r = await api.post('/auth/onboarding', onboarding)
+      const payload = { ...onboarding }
+      const keepBlank = new Set(['first_name', 'last_name', 'old_password', 'new_password'])
+      Object.keys(payload).forEach((key) => {
+        if (payload[key] === '' && !keepBlank.has(key)) payload[key] = null
+      })
+      const r = await api.post('/auth/onboarding', payload)
       setUser(r.data.user)
     } catch (err) {
       setOnboardingError(errorMessage(err))
