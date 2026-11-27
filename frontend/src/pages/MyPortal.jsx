@@ -22,6 +22,21 @@ const KYC_CATEGORIES = [
   { value: 'nominee_aadhaar', label: 'Nominee Aadhaar card' },
 ]
 
+const MONTH_NUMBERS = {
+  January: 1, February: 2, March: 3, April: 4, May: 5, June: 6,
+  July: 7, August: 8, September: 9, October: 10, November: 11, December: 12,
+}
+const DOWNLOAD_FROM = { month: 10, year: 2026 }
+
+function isFromDownloadMonth(slip) {
+  const match = /^([A-Za-z]+)\s+(\d{4})$/.exec(slip.period_name || '')
+  if (!match) return false
+  const month = MONTH_NUMBERS[match[1]]
+  if (!month) return false
+  const year = Number(match[2])
+  return year > DOWNLOAD_FROM.year || (year === DOWNLOAD_FROM.year && month >= DOWNLOAD_FROM.month)
+}
+
 export default function MyPortal() {
   const { user, setUser } = useAuth()
   const [profile, setProfile] = useState(null)
@@ -101,15 +116,20 @@ export default function MyPortal() {
     } catch (err) { setError(errorMessage(err)) }
   }
 
-  const downloadAll = async () => {
+  const downloadFromOctober = async () => {
+    const periodIds = [...new Set(payslips.filter(isFromDownloadMonth).map((slip) => slip.period_id))]
+    if (!periodIds.length) {
+      setError('No salary slips are available from October 2026')
+      return
+    }
     setError(''); setNotice('')
     try {
-      const res = await api.post('/payroll/payslips/download-zip', { period_ids: [] }, { responseType: 'blob' })
+      const res = await api.post('/payroll/payslips/download-zip', { period_ids: periodIds }, { responseType: 'blob' })
       const url = URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }))
       const link = document.createElement('a')
-      link.href = url; link.download = `salary_slips_${user?.username || 'me'}.zip`; link.click()
+      link.href = url; link.download = `salary_slips_from_october_2026_${user?.username || 'me'}.zip`; link.click()
       URL.revokeObjectURL(url)
-      setNotice('All available salary slips downloaded')
+      setNotice('Salary slips from October 2026 downloaded')
     } catch (err) { setError(errorMessage(err)) }
   }
 
@@ -205,7 +225,7 @@ export default function MyPortal() {
       {isBirthdayToday(profile?.date_of_birth) && <BirthdayAmbience subtle />}
       <PageHead title="My portal" subtitle="Your profile, KYC documents, attendance and salary slips"
         actions={<>
-          <button className="btn btn-outline" disabled={!payslips.length} onClick={downloadAll}><Download size={15} /> Download all slips</button>
+          <button className="btn btn-outline" disabled={!payslips.some(isFromDownloadMonth)} onClick={downloadFromOctober} title="Downloads October 2026 and every completed month after it"><Download size={15} /> Download from October 2026</button>
           <button className="btn btn-outline" disabled={!profile} onClick={() => setLeaveOpen(true)}><Plus size={15} /> Apply leave</button>
           <button className="btn btn-primary" disabled={!profile} onClick={openEdit}><Pencil size={15} /> Edit personal details</button>
         </>} />
