@@ -1,19 +1,49 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { CalendarCheck2, ClipboardList, Clock3, TrendingUp, UserCheck, UserX, Users, Wallet } from 'lucide-react'
+import { CalendarCheck2, ClipboardList, Clock3, Download, FileText, Megaphone, TrendingUp, UserCheck, UserX, Users, Wallet } from 'lucide-react'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
-import { Card, Notice, PageHead, Stat, todayStr } from '../components/ui'
+import { Badge, Card, Notice, PageHead, Stat, fmtDate, todayStr } from '../components/ui'
 
 export default function Dashboard() {
   const { user, has } = useAuth()
   const [data, setData] = useState(null)
+  const [circulars, setCirculars] = useState([])
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.get('/dashboard/summary').then((res) => setData(res.data)).catch((err) => setError(err.response?.data?.detail || 'Unable to load dashboard'))
+    api.get('/dashboard/summary')
+      .then((res) => { setData(res.data); setCirculars(res.data.circulars || []) })
+      .catch((err) => setError(err.response?.data?.detail || 'Unable to load dashboard'))
   }, [])
+
+  const markViewed = async (circular) => {
+    if (circular.viewed_by_me) return
+    try {
+      const response = await api.post(`/circulars/${circular.id}/view`)
+      setCirculars((items) => items.map((item) => item.id === circular.id ? response.data : item))
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Unable to record the circular view')
+    }
+  }
+
+  const openCircular = async (circular) => {
+    await markViewed(circular)
+    try {
+      const response = await api.get(`/circulars/${circular.id}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = circular.original_filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Unable to open the circular')
+    }
+  }
 
   const quickLinks = [
     ...(has('employee.view') ? [{ to: '/employees', label: 'Employees', icon: Users, desc: 'Add or edit employee records' }] : []),
@@ -30,6 +60,52 @@ export default function Dashboard() {
         subtitle="Here is what is happening across your workplace today."
       />
       <Notice type="error">{error}</Notice>
+
+      {circulars.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <Card
+            title="Circular notices"
+            subtitle={`${circulars.filter((item) => !item.viewed_by_me).length} unread · HR notices and announcements`}
+          >
+            <div style={{ display: 'grid', gap: 10 }}>
+              {circulars.map((circular) => (
+                <div
+                  key={circular.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '12px 14px', borderRadius: 8,
+                    background: circular.viewed_by_me ? '#f8fafc' : '#eef2ff',
+                  }}
+                >
+                  <div className="kpi-icon" style={{ background: circular.viewed_by_me ? '#e2e8f0' : '#dbeafe', color: '#4f46e5' }}>
+                    <Megaphone size={18} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <strong style={{ color: '#0f172a', fontSize: 13 }}>{circular.title}</strong>
+                      {!circular.viewed_by_me && <Badge status="pending">New</Badge>}
+                    </div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
+                      <FileText size={12} style={{ verticalAlign: -2, marginRight: 4 }} />
+                      {circular.original_filename} · Issued {fmtDate(circular.issued_date)}
+                      {circular.viewed_at ? ` · Viewed ${fmtDate(circular.viewed_at)}` : ''}
+                    </div>
+                  </div>
+                  <button className="btn btn-outline btn-sm" onClick={() => openCircular(circular)}>
+                    <Download size={14} /> Open
+                  </button>
+                  {!circular.viewed_by_me && (
+                    <button className="btn btn-primary btn-sm" onClick={() => markViewed(circular)}>
+                      Mark viewed
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
       {!data ? <div className="loader">Loading dashboard…</div> : (
         <>
           <div className="grid grid-4" style={{ marginBottom: 16 }}>

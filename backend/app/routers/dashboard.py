@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, require, scoped_employee_id
 from app.database import get_db
 from app.models import AttendanceRecord, Employee, PayrollPeriod, Payslip, User
+from app.services.circulars import query_for_user, serialize as serialize_circular
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
@@ -57,5 +58,6 @@ def summary(db: Session = Depends(get_db), user: User = Depends(require("dashboa
         ),
         "pending_payslips": pending,
         "open_payroll_periods": db.query(PayrollPeriod).filter(PayrollPeriod.status != "paid").count(),
+        "circulars": [serialize_circular(db, notice, user) for notice in query_for_user(db, user)],
         "trend": trend,
     }

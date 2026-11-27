@@ -337,6 +337,29 @@ class EmployeeDocumentOut(BaseModel):
     uploaded_at: Optional[datetime] = None
 
 
+class CircularNoticeOut(BaseModel):
+    id: int
+    title: str
+    audience: str
+    audience_label: Optional[str] = None
+    employee_id: Optional[int] = None
+    employee_code: Optional[str] = None
+    employee_name: Optional[str] = None
+    original_filename: str
+    content_type: Optional[str] = None
+    size_bytes: int = 0
+    issued_date: Optional[date] = None
+    is_active: bool = True
+    uploaded_by: Optional[int] = None
+    uploaded_by_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+    viewed_count: int = 0
+    target_count: int = 0
+    viewed_by_me: bool = False
+    viewed_at: Optional[datetime] = None
+    download_url: Optional[str] = None
+
+
 class EmployeeSelfUpdate(BaseModel):
     """Fields an employee is allowed to change from the self-service portal.
 

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     PDF_DIR: str = "./data/pdfs"
     DOCUMENT_DIR: str = "./data/documents"
+    CIRCULAR_DIR: str = "./data/circulars"
     CORS_ORIGINS: str = "*"
 
     # Attendance/punch logs are kept for at least this many days.  There is no

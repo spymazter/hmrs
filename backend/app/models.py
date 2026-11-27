@@ -257,6 +257,45 @@ class EmployeeDocument(Base):
     employee = relationship("Employee")
 
 
+class CircularNotice(Base):
+    """HR notice-board item issued to every employee or one employee."""
+    __tablename__ = "circular_notices"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    audience = Column(String(20), default="all", nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True)
+    original_filename = Column(String(255), nullable=False)
+    stored_filename = Column(String(255), nullable=False, unique=True)
+    content_type = Column(String(100))
+    size_bytes = Column(Integer, default=0)
+    issued_date = Column(Date, default=date.today)
+    is_active = Column(Boolean, default=True, nullable=False)
+    uploaded_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.now)
+
+    employee = relationship("Employee")
+    views = relationship("CircularView", back_populates="notice", cascade="all, delete-orphan")
+
+
+class CircularView(Base):
+    """Read receipt showing which employee viewed a circular notice."""
+    __tablename__ = "circular_views"
+    id = Column(Integer, primary_key=True)
+    circular_id = Column(
+        Integer, ForeignKey("circular_notices.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"))
+    viewed_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("circular_id", "user_id", name="uq_circular_view_user"),
+    )
+
+    notice = relationship("CircularNotice", back_populates="views")
+
+
 class IdentifierReservation(Base):
     """Permanent ownership record for employee codes, device UIDs and user links.
 

@@ -10,6 +10,7 @@ PERMISSIONS = [
     ("document.view", "View employee documents", "Employees"),
     ("document.manage", "Upload / remove employee documents", "Employees"),
     ("document.hr", "View confidential HR-only documents", "Employees"),
+    ("circular.manage", "Upload / remove circular notices", "Employees"),
     ("shift.view", "View shifts", "Shifts"),
     ("shift.manage", "Manage shifts", "Shifts"),
     ("attendance.view", "View attendance", "Attendance"),

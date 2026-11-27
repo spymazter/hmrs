@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3, BriefcaseBusiness, Building2, CalendarCheck2, CalendarRange, ChevronDown, ClipboardList,
-  Coffee, FileBarChart, FileText, Fingerprint, LayoutDashboard, LogOut, MapPin, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
+  Coffee, FileBarChart, FileText, Fingerprint, LayoutDashboard, LogOut, MapPin, Megaphone, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -15,6 +15,7 @@ const NAV = [
   { section: 'People & shifts', items: [
     { to: '/employees', label: 'Employees', icon: Users, perm: ['employee.view'] },
     { to: '/documents', label: 'Documents', icon: FileText, perm: ['document.view', 'self.portal'] },
+    { to: '/circulars', label: 'Circulars', icon: Megaphone, perm: ['circular.manage'] },
     { to: '/departments', label: 'Departments', icon: Building2, perm: ['employee.view'] },
     { to: '/designations', label: 'Designations', icon: BriefcaseBusiness, perm: ['employee.view'] },
     { to: '/locations', label: 'Locations', icon: MapPin, perm: ['employee.view'] },
@@ -42,6 +43,7 @@ const TITLES = {
   '/': ['Dashboard', 'Today at a glance'],
   '/employees': ['Employees', 'Manage employee master and device enrollment'],
   '/documents': ['Employee documents', 'Employee-wise document status and uploaded files'],
+  '/circulars': ['Circular notices', 'Upload HR notices to the employee dashboard notice board'],
   '/departments': ['Departments', 'Maintain departments and their heads'],
   '/designations': ['Designations', 'Maintain job titles grouped by department'],
   '/locations': ['Locations', 'Workplaces and branches used by advanced reports'],

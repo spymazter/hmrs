@@ -498,6 +498,73 @@ def _normalize_shift_group_designations() -> None:
                 )
 
 
+def _create_circular_tables() -> None:
+    """Create the HR notice board and its read receipts on existing installs."""
+    statements = [
+        """
+        CREATE TABLE IF NOT EXISTS circular_notices (
+            id INTEGER PRIMARY KEY,
+            title VARCHAR(200) NOT NULL,
+            audience VARCHAR(20) NOT NULL DEFAULT 'all',
+            employee_id INTEGER,
+            original_filename VARCHAR(255) NOT NULL,
+            stored_filename VARCHAR(255) NOT NULL UNIQUE,
+            content_type VARCHAR(100),
+            size_bytes INTEGER DEFAULT 0,
+            issued_date DATE,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            uploaded_by INTEGER,
+            created_at DATETIME,
+            FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+            FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_circular_notices_audience ON circular_notices (audience)",
+        "CREATE INDEX IF NOT EXISTS ix_circular_notices_employee_id ON circular_notices (employee_id)",
+        """
+        CREATE TABLE IF NOT EXISTS circular_views (
+            id INTEGER PRIMARY KEY,
+            circular_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            employee_id INTEGER,
+            viewed_at DATETIME,
+            CONSTRAINT uq_circular_view_user UNIQUE (circular_id, user_id),
+            FOREIGN KEY(circular_id) REFERENCES circular_notices(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_circular_views_circular_id ON circular_views (circular_id)",
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def _grant_circular_permissions() -> None:
+    """Give HR/admin the notice-board permission on existing installs."""
+    grants = {"admin": {"circular.manage"}, "hr manager": {"circular.manage"}}
+    with engine.begin() as connection:
+        rows = connection.execute(text("SELECT id, name, permissions FROM roles")).fetchall()
+        for row in rows:
+            wanted = grants.get((row.name or "").strip().casefold())
+            if not wanted:
+                continue
+            try:
+                permissions = json.loads(row.permissions or "[]")
+            except (TypeError, ValueError):
+                permissions = []
+            updated = list(permissions)
+            for code in sorted(wanted):
+                if code not in updated:
+                    updated.append(code)
+            if updated != permissions:
+                connection.execute(
+                    text("UPDATE roles SET permissions = :permissions WHERE id = :id"),
+                    {"permissions": json.dumps(updated), "id": row.id},
+                )
+
+
 def run_migrations() -> None:
     """Add new columns to an existing database without recreating tables."""
     inspector = inspect(engine)
@@ -530,6 +597,8 @@ def run_migrations() -> None:
 
     _migrate_identity_reservations()
     _grant_document_permissions()
+    _create_circular_tables()
+    _grant_circular_permissions()
     _create_leave_tables()
     _seed_leave_defaults()
     _retire_sick_leave()

@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Employees from './pages/Employees'
 import EmployeeDocuments from './pages/EmployeeDocuments'
+import Circulars from './pages/Circulars'
 import MasterData from './pages/MasterData'
 import Shifts from './pages/Shifts'
 import ShiftGroups from './pages/ShiftGroups'
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/employees" element={<Guard perm={['employee.view']}><Employees /></Guard>} />
             <Route path="/documents" element={<Guard perm={['document.view', 'self.portal']}><EmployeeDocuments /></Guard>} />
+            <Route path="/circulars" element={<Guard perm={['circular.manage']}><Circulars /></Guard>} />
             <Route path="/departments" element={<Guard perm={['employee.view']}><MasterData type="departments" /></Guard>} />
             <Route path="/designations" element={<Guard perm={['employee.view']}><MasterData type="designations" /></Guard>} />
             <Route path="/locations" element={<Guard perm={['employee.view']}><MasterData type="locations" /></Guard>} />
