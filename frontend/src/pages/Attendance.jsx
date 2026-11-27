@@ -56,6 +56,7 @@ export default function Attendance() {
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [employees, setEmployees] = useState([])
+  const [designations, setDesignations] = useState([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState('')
   const [error, setError] = useState('')
@@ -64,6 +65,7 @@ export default function Attendance() {
     from_date: searchParams.get('from') || day || todayStr(),
     to_date: searchParams.get('to') || day || todayStr(),
     employee_id: searchParams.get('employee_id') || '',
+    designation_id: searchParams.get('designation_id') || '',
     status: searchParams.get('status') || '',
   })
   const [punchModal, setPunchModal] = useState(false)
@@ -73,6 +75,7 @@ export default function Attendance() {
     setLoading(true)
     const params = new URLSearchParams({ from_date: filters.from_date, to_date: filters.to_date, limit: '500' })
     if (filters.employee_id) params.set('employee_id', filters.employee_id)
+    if (filters.designation_id) params.set('designation_id', filters.designation_id)
     if (filters.status && tab === 'records') params.set('status', filters.status)
     api.get(`/attendance/${tab === 'records' ? 'records' : 'logs'}?${params}`)
       .then((r) => { setRows(r.data.items); setTotal(r.data.total) })
@@ -110,6 +113,9 @@ export default function Attendance() {
     }).catch(() => {})
   }, [canViewAll])
   useEffect(() => {
+    api.get('/designations').then((r) => setDesignations(r.data)).catch(() => {})
+  }, [])
+  useEffect(() => {
     const t = setTimeout(load, 150)
     return () => clearTimeout(t)
   }, [filters, tab])
@@ -142,6 +148,7 @@ export default function Attendance() {
         view: tab, format, from_date: filters.from_date, to_date: filters.to_date,
       })
       if (filters.employee_id) params.set('employee_id', filters.employee_id)
+      if (filters.designation_id) params.set('designation_id', filters.designation_id)
       if (tab === 'records' && filters.status) params.set('status', filters.status)
       const response = await api.get(`/attendance/export?${params}`, { responseType: 'blob' })
       const mime = {
@@ -225,6 +232,12 @@ export default function Attendance() {
             options={employees.map((e) => ({ value: e.id, label: `${e.employee_code} — ${e.first_name} ${e.last_name}` }))}
             placeholder="All employees" style={{ width: 230 }}
           />}
+          <SearchableSelect
+            value={filters.designation_id}
+            onChange={(v) => setFilters({ ...filters, designation_id: v })}
+            options={designations.map((d) => ({ value: d.id, label: d.name }))}
+            placeholder="All designations" style={{ width: 190 }}
+          />
           {tab === 'records' && <SearchableSelect
             value={filters.status}
             onChange={(v) => setFilters({ ...filters, status: v })}

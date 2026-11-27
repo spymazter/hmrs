@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user, require, scoped_employee_id
 from app.config import settings
 from app.database import get_db
-from app.models import AttendanceRecord, Employee, PunchLog, User
+from app.models import AttendanceRecord, Designation, Employee, PunchLog, User
 from app.schemas import AttendanceListOut, AttendanceOut, PunchCreate, PunchListOut, PunchOut
 from app.services.attendance import recompute_records
 from app.services.report_formatters import to_pdf_bytes, to_xlsx_bytes
@@ -33,8 +33,13 @@ def _date_range(from_date: str | None, to_date: str | None, logs: bool = False):
     return start, end
 
 
-def _log_query(db: Session, user: User, start, end, employee_id: int | None):
+def _log_query(
+    db: Session, user: User, start, end, employee_id: int | None,
+    designation_id: int | None = None,
+):
     query = db.query(PunchLog)
+    if designation_id:
+        query = query.join(PunchLog.employee).filter(Employee.designation_id == designation_id)
     if start:
         query = query.filter(PunchLog.punch_time >= datetime.combine(start, time.min))
     if end:
@@ -50,6 +55,7 @@ def _log_query(db: Session, user: User, start, end, employee_id: int | None):
 def _record_query(
     db: Session, user: User, start, end, employee_id: int | None,
     department_id: int | None, status: str | None,
+    designation_id: int | None = None,
 ):
     query = db.query(AttendanceRecord).join(Employee)
     if start:
@@ -63,6 +69,8 @@ def _record_query(
         query = query.filter(AttendanceRecord.employee_id == employee_id)
     if department_id:
         query = query.filter(Employee.department_id == department_id)
+    if designation_id:
+        query = query.filter(Employee.designation_id == designation_id)
     if status:
         # "attended" matches the dashboard's Present today KPI (present + half day).
         if status == "attended":
@@ -90,13 +98,14 @@ def list_logs(
     from_date: str | None = None,
     to_date: str | None = None,
     employee_id: int | None = None,
+    designation_id: int | None = None,
     skip: int = 0,
     limit: int = 200,
     db: Session = Depends(get_db),
     user: User = Depends(require("attendance.view", "self.portal")),
 ):
     start, end = _date_range(from_date, to_date, logs=True)
-    query = _log_query(db, user, start, end, employee_id)
+    query = _log_query(db, user, start, end, employee_id, designation_id)
     total = query.count()
     items = query.order_by(PunchLog.punch_time.desc()).offset(skip).limit(min(limit, 1000)).all()
     return {"items": items, "total": total}
@@ -140,6 +149,7 @@ def list_records(
     to_date: str | None = None,
     employee_id: int | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     status: str | None = None,
     skip: int = 0,
     limit: int = 200,
@@ -147,7 +157,7 @@ def list_records(
     user: User = Depends(require("attendance.view", "self.portal")),
 ):
     start, end = _date_range(from_date, to_date)
-    query = _record_query(db, user, start, end, employee_id, department_id, status)
+    query = _record_query(db, user, start, end, employee_id, department_id, status, designation_id)
     total = query.count()
     items = query.order_by(*_employee_name_order(), AttendanceRecord.record_date.desc()).offset(skip).limit(min(limit, 1000)).all()
     return {"items": items, "total": total}
@@ -161,6 +171,7 @@ def export_attendance(
     to_date: str | None = None,
     employee_id: int | None = None,
     department_id: int | None = None,
+    designation_id: int | None = None,
     status: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require("attendance.view", "self.portal")),
@@ -175,7 +186,7 @@ def export_attendance(
     start, end = _date_range(from_date, to_date, logs=is_logs)
     params = []
     if is_logs:
-        query = _log_query(db, user, start, end, employee_id).options(joinedload(PunchLog.employee))
+        query = _log_query(db, user, start, end, employee_id, designation_id).options(joinedload(PunchLog.employee))
         total = query.count()
         items = query.order_by(PunchLog.punch_time.desc()).limit(EXPORT_LIMIT).all()
         columns = [
@@ -194,7 +205,7 @@ def export_attendance(
         } for item in items]
         title = "Raw punch logs"
     else:
-        query = _record_query(db, user, start, end, employee_id, department_id, status)
+        query = _record_query(db, user, start, end, employee_id, department_id, status, designation_id)
         total = query.count()
         items = query.order_by(
             *_employee_name_order(), AttendanceRecord.record_date.desc()
@@ -233,6 +244,9 @@ def export_attendance(
 
     if employee_id:
         params.append(f"Employee ID: {employee_id}")
+    if designation_id:
+        designation = db.get(Designation, designation_id)
+        params.append(f"Designation: {designation.name if designation else designation_id}")
     notes = ""
     if total > len(rows):
         notes = f"Showing first {len(rows):,} of {total:,} matching rows."
