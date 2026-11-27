@@ -792,6 +792,33 @@ class AttendanceEngine:
             return start, end
         return datetime.combine(day, time.min), datetime.combine(day + timedelta(days=1), time.min)
 
+    def _worked_night_shift_before(
+        self,
+        employee: Employee,
+        day: date,
+        data: AttendanceData,
+        shifts: dict | None = None,
+    ) -> bool:
+        """Whether a night shift ending on ``day``'s morning was worked.
+
+        Night shifts are attributed to their start date, so look at the day
+        before.  It only counts as worked when there is an evening punch on
+        that date — the same anchor ``night_window_candidates`` uses to decide
+        whether the following morning belongs to the night shift or to a new
+        day.  This also covers a recompute that starts on the morning after
+        the night shift, because punches are loaded from ``start - 1 day``.
+        """
+        previous = day - timedelta(days=1)
+        shift = (shifts or {}).get(previous) or self._resolve_shift(employee, previous, data)
+        if not self.is_night(shift):
+            return False
+        window_start, window_end = self.punch_window(previous, shift)
+        return any(
+            window_start <= punch.punch_time < window_end
+            and punch.punch_time.date() == previous
+            for punch in data.punches.get(employee.id, [])
+        )
+
     # -- main calculation ---------------------------------------------------
     def calculate_range(
         self,
@@ -825,6 +852,21 @@ class AttendanceEngine:
                 cursor += timedelta(days=1)
             shifts = {day: self._resolve_shift(employee, day, data) for day in days}
 
+            # A night shift is stored on its start date.  If this range begins
+            # on the following morning, that shift's punches still belong to
+            # the previous record, so reserve them before calculating days.
+            if days:
+                previous = days[0] - timedelta(days=1)
+                previous_shift = self._resolve_shift(employee, previous, data)
+                if self.is_night(previous_shift):
+                    window_start, window_end = self.punch_window(previous, previous_shift)
+                    window_punches = [
+                        p for p in all_punches
+                        if window_start <= p.punch_time < window_end
+                    ]
+                    if any(p.punch_time.date() == previous for p in window_punches):
+                        consumed.update(p.id for p in window_punches)
+
             for day in days:
                 shift = shifts[day]
                 window_start, window_end = self.punch_window(day, shift)
@@ -836,7 +878,13 @@ class AttendanceEngine:
                     day, shift, candidates, shifts.get(day + timedelta(days=1))
                 )
                 consumed.update(p.id for p in candidates)
-                results.append(self._calculate_day(employee, day, shift, candidates, data))
+                after_night_shift = self._worked_night_shift_before(
+                    employee, day, data, shifts
+                )
+                results.append(self._calculate_day(
+                    employee, day, shift, candidates, data,
+                    after_night_shift=after_night_shift,
+                ))
 
         if self.config.sandwich_rule:
             self._apply_sandwich_rule(results)
@@ -849,6 +897,7 @@ class AttendanceEngine:
         shift: Shift | None,
         punches: list[NormalizedPunch],
         data: AttendanceData,
+        after_night_shift: bool = False,
     ) -> DayCalculation:
         cfg = self.config
         normalized = debounce_punches(punches, cfg.punch_debounce_minutes)
@@ -881,7 +930,10 @@ class AttendanceEngine:
 
         late_by = 0
         early_by = 0
-        if shift and shift_type != "flexi" and first_in:
+        # An employee who finished a night shift this morning is not late for
+        # the first punch of the following day.  The night shift's punches
+        # were already consumed by its own record.
+        if shift and shift_type != "flexi" and first_in and not after_night_shift:
             grace = shift.grace_minutes if shift.grace_minutes is not None else 0
             late_by = max(0, int((first_in - planned_start).total_seconds() / 60 - grace))
         if shift and shift_type != "flexi" and last_out and len(normalized) > 1:
