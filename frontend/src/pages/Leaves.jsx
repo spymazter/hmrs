@@ -17,14 +17,14 @@ export default function Leaves() {
   const [employees, setEmployees] = useState([])
   const [balances, setBalances] = useState([])
   const [quotas, setQuotas] = useState([])
-  const [holidays, setHolidays] = useState([])
+  const [holidayList, setHolidayList] = useState([])
   const [compOffs, setCompOffs] = useState([])
   const [year, setYear] = useState(currentYear)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [modal, setModal] = useState(false)
   const [quotaFile, setQuotaFile] = useState(null)
-  const [rhFile, setRhFile] = useState(null)
+  const [holidayFile, setHolidayFile] = useState(null)
   const [form, setForm] = useState({ employee_id: user?.employee_id || '', leave_type_id: '', from_date: todayStr(), to_date: todayStr(), reason: '', is_full_day: true, restricted_holiday_id: '' })
   const [quotaForm, setQuotaForm] = useState({ employee_id: '', leave_type_id: '', days: '' })
   const [rhForm, setRhForm] = useState({ holiday_date: '', name: '', reason: '' })
@@ -41,10 +41,8 @@ export default function Leaves() {
     }
     if (isHR) {
       api.get(`/leaves/quotas?year=${year}`).then((r) => setQuotas(r.data)).catch(() => {})
-      api.get(`/leaves/restricted-holidays?year=${year}`).then((r) => setHolidays(r.data)).catch(() => {})
-    } else {
-      api.get(`/leaves/restricted-holidays?year=${year}`).then((r) => setHolidays(r.data)).catch(() => {})
     }
+    api.get(`/leaves/holiday-list?year=${year}`).then((r) => setHolidayList(r.data)).catch(() => {})
     api.get('/leaves/comp-offs').then((r) => setCompOffs(r.data)).catch(() => {})
     if (has('employee.view')) api.get('/employees?limit=500').then((r) => setEmployees(r.data.items)).catch(() => {})
   }
@@ -53,8 +51,11 @@ export default function Leaves() {
 
   const report = async (promise, success) => {
     setError(''); setNotice('')
-    try { await promise; setNotice(success); load() }
-    catch (err) { setError(errorMessage(err)) }
+    try {
+      const result = await promise
+      setNotice(typeof success === 'function' ? success(result) : success)
+      load()
+    } catch (err) { setError(errorMessage(err)) }
   }
 
   const act = (row, action) => {
@@ -101,10 +102,18 @@ export default function Leaves() {
   )
 
   const uploadHoliday = () => {
-    if (!rhFile) { setError('Choose an RH list file first'); return }
+    if (!holidayFile) { setError('Choose a yearly holiday list file first'); return }
     const body = new FormData()
-    body.append('file', rhFile)
-    report(api.post('/leaves/restricted-holidays/upload', body), 'RH list uploaded')
+    body.append('year', String(year))
+    body.append('file', holidayFile)
+    report(
+      api.post('/leaves/holiday-list/upload', body).then((r) => r.data),
+      (result) => {
+        const details = `${result.rh_created} RH added, ${result.rh_updated} RH updated, `
+          + `${result.holiday_created} compulsory holidays added, ${result.holiday_updated} updated`
+        return `Holiday list uploaded for ${result.year}: ${details}${result.skipped.length ? ` · ${result.skipped.length} row(s) skipped` : ''}`
+      },
+    )
   }
 
   const accrue = () => report(
@@ -125,7 +134,9 @@ export default function Leaves() {
   const compBalance = compOffs[0]?.balance
   const employeeOptions = employees.map((e) => ({ value: e.id, label: `${e.employee_code} — ${e.full_name || `${e.first_name} ${e.last_name}`}` }))
   const typeOptions = types.map((t) => ({ value: t.id, label: `${t.code ? `${t.code} — ` : ''}${t.name}` }))
-  const holidayOptions = holidays.map((h) => ({ value: h.id, label: `${h.holiday_date} — ${h.name}` }))
+  const holidayOptions = holidayList
+    .filter((h) => h.type === 'RH')
+    .map((h) => ({ value: h.id.replace('RH-', ''), label: `${h.holiday_date} — ${h.name}` }))
 
   return (
     <>
@@ -188,22 +199,31 @@ export default function Leaves() {
             ]} />
           </Card>
 
-          <Card title="Restricted holiday list" subtitle={`HR updates the ${year} RH list once a year; employees choose 2 days.`} style={{ marginTop: 16 }}>
+          <Card title="Yearly holiday list" subtitle={`Upload the ${year} list once a year; RH is optional, Holiday is compulsory.`} style={{ marginTop: 16 }}>
             <div className="form-grid">
-              <Field label="Date"><input type="date" value={rhForm.holiday_date} onChange={(e) => setRhForm({ ...rhForm, holiday_date: e.target.value })} /></Field>
-              <Field label="Name"><input value={rhForm.name} onChange={(e) => setRhForm({ ...rhForm, name: e.target.value })} /></Field>
+              <Field label="List year"><input type="number" min="2000" max="2100" value={year} onChange={(e) => setYear(Number(e.target.value) || currentYear)} /></Field>
+              <Field label="RH date"><input type="date" value={rhForm.holiday_date} onChange={(e) => setRhForm({ ...rhForm, holiday_date: e.target.value })} /></Field>
+              <Field label="RH name"><input value={rhForm.name} onChange={(e) => setRhForm({ ...rhForm, name: e.target.value })} placeholder="e.g. Diwali RH" /></Field>
               <Field label="Reason" full><input value={rhForm.reason} onChange={(e) => setRhForm({ ...rhForm, reason: e.target.value })} /></Field>
-              <div style={{ display: 'flex', alignItems: 'end' }}><button className="btn btn-primary" onClick={saveHoliday}>Add holiday</button></div>
+              <div style={{ display: 'flex', alignItems: 'end' }}><button className="btn btn-primary" onClick={saveHoliday}>Add RH</button></div>
               <Field label="Upload yearly list (CSV/XLSX)" full>
-                <div className="toolbar"><input type="file" accept=".csv,.xlsx,.xlsm" onChange={(e) => setRhFile(e.target.files?.[0] || null)} />
-                  <button className="btn btn-outline" onClick={uploadHoliday}><Upload size={14} /> Upload</button>
-                  <button className="btn btn-outline" onClick={() => downloadTemplate('/leaves/restricted-holidays/template?file_format=csv', 'restricted_holidays_template.csv')}><Download size={14} /> Template</button>
+                <div className="toolbar">
+                  <input type="file" accept=".csv,.xlsx,.xlsm" onChange={(e) => setHolidayFile(e.target.files?.[0] || null)} />
+                  <button className="btn btn-outline" onClick={uploadHoliday}><Upload size={14} /> Upload for {year}</button>
+                  <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=csv&year=${year}`, 'holiday_list_template.csv')}><Download size={14} /> CSV template</button>
+                  <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=xlsx&year=${year}`, 'holiday_list_template.xlsx')}><Download size={14} /> XLSX template</button>
                 </div>
+                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  Template <strong>Type</strong> column: <strong>RH</strong> = restricted holiday, <strong>Holiday</strong> = compulsory holiday.
+                  Rows for a different year are skipped; existing dates are updated, never deleted.
+                </p>
               </Field>
             </div>
-            <DataTable rows={holidays} emptyText="No restricted holidays uploaded for this year" columns={[
+            <DataTable rows={holidayList} emptyText="No holidays uploaded for this year" columns={[
+              { label: 'Type', render: (r) => <Badge status={r.type === 'RH' ? 'pending' : 'holiday'}>{r.type === 'RH' ? 'RH' : 'Holiday (compulsory)'}</Badge> },
               { label: 'Date', render: (r) => <span className="strong">{r.holiday_date}</span> },
               { label: 'Name', render: (r) => r.name },
+              { label: 'Year', render: (r) => r.year },
               { label: 'Reason', render: (r) => r.reason || '—' },
             ]} />
           </Card>

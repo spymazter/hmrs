@@ -643,6 +643,16 @@ class HolidayOut(ORMBase):
     name: str
 
 
+class HolidayListItem(BaseModel):
+    """One row of the combined RH / regular holiday list."""
+    id: str
+    holiday_date: date
+    name: str
+    type: str
+    year: Optional[int] = None
+    reason: Optional[str] = None
+
+
 # Payroll -------------------------------------------------------------------
 class PayrollPeriodBase(BaseModel):
     name: str

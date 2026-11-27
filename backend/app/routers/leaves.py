@@ -3,7 +3,7 @@ import io
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 from app.auth import can, is_admin, require
 from app.database import get_db
 from app.models import (
-    CompOff, Employee, LeaveQuota, LeaveRequest, LeaveType, RestrictedHoliday, User,
+    CompOff, Employee, Holiday, LeaveQuota, LeaveRequest, LeaveType, RestrictedHoliday, User,
 )
 from app.schemas import (
-    LeaveBalanceOut, LeaveQuotaIn, LeaveQuotaOut, LeaveRejectIn, LeaveRequestCreate,
-    LeaveRequestOut, LeaveVerifyIn, RestrictedHolidayIn, RestrictedHolidayOut,
+    HolidayListItem, LeaveBalanceOut, LeaveQuotaIn, LeaveQuotaOut, LeaveRejectIn,
+    LeaveRequestCreate, LeaveRequestOut, LeaveVerifyIn, RestrictedHolidayIn,
+    RestrictedHolidayOut,
 )
 from app.services.attendance import recompute_records
 from app.services.comp_off import balance_for, accrued_rows
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/api/leaves", tags=["Leaves"])
 
 QUOTA_HEADERS = ["Employee Code", "Employee Name", "Leave Type", "Leave Code", "Year", "Days"]
 RH_HEADERS = ["Date", "Name", "Year", "Reason"]
+HOLIDAY_LIST_HEADERS = ["Date", "Name", "Type", "Year", "Reason"]
 
 
 def _norm(value) -> str:
@@ -69,6 +71,48 @@ def _value(row: dict, *names: str):
     return None
 
 
+def _holiday_kind(row: dict) -> str | None:
+    """Return RH / Holiday from the yearly-list Type column.
+
+    Older RH-only files have no Type column, so those rows stay RH. A Type
+    column that is present but blank is treated as an error instead.
+    """
+    type_headers = {"type", "holidaytype", "category"}
+    has_type_column = any(_norm(key) in type_headers for key in row)
+    raw = _value(row, "Type", "Holiday Type", "Category")
+    if raw in (None, ""):
+        return None if has_type_column else "RH"
+    code = _norm(raw)
+    if code in ("rh", "restrictedholiday", "restricted"):
+        return "RH"
+    if code in (
+        "holiday", "compulsoryholiday", "compulsory", "generalholiday",
+        "publicholiday", "nationalholiday",
+    ):
+        return "Holiday"
+    return None
+
+
+def _parse_list_date(value) -> date | None:
+    """Accept ISO plus the day-first formats used in HR holiday sheets."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip().replace("..", ".")
+    if not text:
+        return None
+    for fmt in (
+        "%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y",
+        "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y",
+    ):
+        try:
+            return datetime.strptime(text[:32], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 def _find_employee(db: Session, row: dict) -> Employee | None:
     code = str(_value(row, "Employee Code", "Employee ID", "Code", "UID") or "").strip()
     if not code:
@@ -94,13 +138,19 @@ def _find_leave_type(db: Session, row: dict) -> LeaveType | None:
     return None
 
 
-def _template(headers: list[str], filename: str, file_format: str):
+def _template(
+    headers: list[str], filename: str, file_format: str,
+    guide_rows: list[dict] | None = None,
+):
     rows = [{header: "" for header in headers}]
+    rows.extend(guide_rows or [])
     if file_format == "xlsx":
         book = Workbook()
         sheet = book.active
         sheet.title = "Template"
         sheet.append(headers)
+        for row in rows:
+            sheet.append([row.get(header, "") for header in headers])
         output = io.BytesIO()
         book.save(output)
         return Response(
@@ -376,6 +426,139 @@ async def upload_restricted_holidays(
         item.reason = _value(row, "Reason")
     db.commit()
     return {"rows": len(rows), "created": created, "updated": updated, "skipped": skipped[:20]}
+
+
+@router.get("/holiday-list", response_model=list[HolidayListItem])
+def list_holiday_list(
+    year: int = Query(default_factory=lambda: date.today().year),
+    db: Session = Depends(get_db),
+    _=Depends(require("leave.view", "self.portal")),
+):
+    """Combined yearly list: restricted holidays plus regular holidays."""
+    items: list[dict] = [
+        {
+            "id": f"RH-{row.id}",
+            "holiday_date": row.holiday_date,
+            "name": row.name,
+            "type": "RH",
+            "year": row.year,
+            "reason": row.reason,
+        }
+        for row in db.query(RestrictedHoliday).filter(RestrictedHoliday.year == year).all()
+    ]
+    items.extend(
+        {
+            "id": f"H-{row.id}",
+            "holiday_date": row.holiday_date,
+            "name": row.name,
+            "type": "Holiday",
+            "year": row.holiday_date.year,
+            "reason": None,
+        }
+        for row in db.query(Holiday).filter(
+            Holiday.holiday_date >= date(year, 1, 1),
+            Holiday.holiday_date <= date(year, 12, 31),
+        ).all()
+    )
+    return sorted(items, key=lambda item: (item["holiday_date"], item["type"]))
+
+
+@router.get("/holiday-list/template")
+def holiday_list_template(
+    file_format: str = "csv",
+    year: int | None = None,
+    _=Depends(require("leave.quota.manage")),
+):
+    guide_rows = [{
+        "Date": "",
+        "Name": "",
+        "Type": "RH or Holiday",
+        "Year": year or "",
+        "Reason": "RH = restricted holiday, Holiday = compulsory holiday. Replace this row.",
+    }]
+    return _template(HOLIDAY_LIST_HEADERS, "holiday_list_template", file_format, guide_rows)
+
+
+@router.post("/holiday-list/upload")
+async def upload_holiday_list(
+    year: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require("leave.quota.manage")),
+):
+    """Upload one yearly list and route each row to RH or Holiday.
+
+    Existing rows are updated in place; nothing is deleted.
+    """
+    if year < 2000 or year > 2100:
+        raise HTTPException(400, "Invalid year")
+    rows = await _read_rows(file)
+    counts = {
+        "rh_created": 0, "rh_updated": 0,
+        "holiday_created": 0, "holiday_updated": 0,
+    }
+    skipped: list[str] = []
+    for index, row in enumerate(rows, 2):
+        kind = _holiday_kind(row)
+        if not kind:
+            skipped.append(f"Row {index}: Type must be RH or Holiday")
+            continue
+        holiday_date = _parse_list_date(_value(row, "Date", "Holiday Date", "RH Date"))
+        if not holiday_date:
+            skipped.append(f"Row {index}: date is required")
+            continue
+        if holiday_date.year != year:
+            skipped.append(f"Row {index}: date must be in {year}")
+            continue
+        row_year = _value(row, "Year")
+        if row_year not in (None, ""):
+            try:
+                if int(float(row_year)) != year:
+                    skipped.append(f"Row {index}: Year must be {year}")
+                    continue
+            except (TypeError, ValueError):
+                skipped.append(f"Row {index}: invalid Year")
+                continue
+        name = str(_value(row, "Name", "Holiday Name") or "").strip()
+        if not name:
+            skipped.append(f"Row {index}: name is required")
+            continue
+        reason = _value(row, "Reason") or None
+
+        if kind == "RH":
+            item = db.query(RestrictedHoliday).filter(
+                RestrictedHoliday.holiday_date == holiday_date
+            ).first()
+            if not item:
+                item = RestrictedHoliday(holiday_date=holiday_date, created_by=user.id)
+                db.add(item)
+                counts["rh_created"] += 1
+            else:
+                counts["rh_updated"] += 1
+            item.year = year
+            item.name = name
+            item.reason = reason
+            item.is_active = True
+        else:
+            item = db.query(Holiday).filter(
+                Holiday.holiday_date == holiday_date
+            ).first()
+            if not item:
+                item = Holiday(holiday_date=holiday_date)
+                db.add(item)
+                counts["holiday_created"] += 1
+            else:
+                counts["holiday_updated"] += 1
+            item.name = name
+    db.commit()
+    return {
+        "year": year,
+        "rows": len(rows),
+        "created": counts["rh_created"] + counts["holiday_created"],
+        "updated": counts["rh_updated"] + counts["holiday_updated"],
+        **counts,
+        "skipped": skipped[:20],
+    }
 
 
 @router.get("/comp-offs")
