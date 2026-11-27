@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Download, Plus, ShieldCheck, Upload, X } from 'lucide-react'
+import { Check, Download, Plus, RefreshCw, ShieldCheck, Upload, X } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Card, DataTable, Field, Modal, Notice, PageHead, SearchableSelect, todayStr } from '../components/ui'
@@ -25,6 +25,7 @@ export default function Leaves() {
   const [modal, setModal] = useState(false)
   const [quotaFile, setQuotaFile] = useState(null)
   const [holidayFile, setHolidayFile] = useState(null)
+  const [refreshingReports, setRefreshingReports] = useState(false)
   const [form, setForm] = useState({ employee_id: user?.employee_id || '', leave_type_id: '', from_date: todayStr(), to_date: todayStr(), reason: '', is_full_day: true, restricted_holiday_id: '' })
   const [quotaForm, setQuotaForm] = useState({ employee_id: '', leave_type_id: '', days: '' })
   const [rhForm, setRhForm] = useState({ holiday_date: '', name: '', reason: '' })
@@ -101,17 +102,31 @@ export default function Leaves() {
     'Restricted holiday added',
   )
 
+  const refreshReports = (targetYear) => {
+    setRefreshingReports(true)
+    return api.post(`/leaves/holiday-list/recompute?year=${targetYear}`).then((r) => r.data)
+      .finally(() => setRefreshingReports(false))
+  }
+
   const uploadHoliday = () => {
     if (!holidayFile) { setError('Choose a yearly holiday list file first'); return }
     const body = new FormData()
     body.append('year', String(year))
     body.append('file', holidayFile)
     report(
-      api.post('/leaves/holiday-list/upload', body).then((r) => r.data),
+      api.post('/leaves/holiday-list/upload', body).then((r) => r.data).then(async (result) => {
+        try {
+          return { ...result, refreshed: await refreshReports(result.year) }
+        } catch (err) {
+          return { ...result, refreshError: errorMessage(err) }
+        }
+      }),
       (result) => {
         const details = `${result.rh_created} RH added, ${result.rh_updated} RH updated, `
           + `${result.holiday_created} compulsory holidays added, ${result.holiday_updated} updated`
-        return `Holiday list uploaded for ${result.year}: ${details}${result.skipped.length ? ` · ${result.skipped.length} row(s) skipped` : ''}`
+        const base = `Holiday list uploaded for ${result.year}: ${details}${result.skipped.length ? ` · ${result.skipped.length} row(s) skipped` : ''}`
+        if (result.refreshError) return `${base} · reports refresh failed: ${result.refreshError}`
+        return `${base} · ${result.refreshed?.applied ?? 0} report row(s) refreshed`
       },
     )
   }
@@ -210,12 +225,17 @@ export default function Leaves() {
                 <div className="toolbar">
                   <input type="file" accept=".csv,.xlsx,.xlsm" onChange={(e) => setHolidayFile(e.target.files?.[0] || null)} />
                   <button className="btn btn-outline" onClick={uploadHoliday}><Upload size={14} /> Upload for {year}</button>
+                  <button className="btn btn-outline" disabled={refreshingReports} onClick={() => report(
+                    refreshReports(year),
+                    (result) => `${result.applied} attendance/report row(s) refreshed for ${year}`,
+                  )}><RefreshCw size={14} /> {refreshingReports ? 'Refreshing…' : 'Refresh reports'}</button>
                   <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=csv&year=${year}`, 'holiday_list_template.csv')}><Download size={14} /> CSV template</button>
                   <button className="btn btn-outline" onClick={() => downloadTemplate(`/leaves/holiday-list/template?file_format=xlsx&year=${year}`, 'holiday_list_template.xlsx')}><Download size={14} /> XLSX template</button>
                 </div>
                 <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
                   Template <strong>Type</strong> column: <strong>RH</strong> = restricted holiday, <strong>Holiday</strong> = compulsory holiday.
                   Rows for a different year are skipped; existing dates are updated, never deleted.
+                  Upload refreshes attendance and report rows on those dates automatically; use <strong>Refresh reports</strong> to repeat it.
                 </p>
               </Field>
             </div>

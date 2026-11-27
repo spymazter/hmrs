@@ -18,7 +18,7 @@ from app.schemas import (
     LeaveRequestCreate, LeaveRequestOut, LeaveVerifyIn, RestrictedHolidayIn,
     RestrictedHolidayOut,
 )
-from app.services.attendance import recompute_records
+from app.services.attendance import recompute_records, refresh_holiday_reports
 from app.services.comp_off import balance_for, accrued_rows
 from app.services.leave_workflow import (
     can_apply_for, code_for, leave_balances, leave_type_by_code, log_action,
@@ -559,6 +559,18 @@ async def upload_holiday_list(
         **counts,
         "skipped": skipped[:20],
     }
+
+
+@router.post("/holiday-list/recompute")
+def recompute_holiday_list(
+    year: int,
+    db: Session = Depends(get_db),
+    _=Depends(require("leave.quota.manage")),
+):
+    """Refresh attendance and report rows on this year's holiday dates."""
+    if year < 2000 or year > 2100:
+        raise HTTPException(400, "Invalid year")
+    return refresh_holiday_reports(db, year)
 
 
 @router.get("/comp-offs")

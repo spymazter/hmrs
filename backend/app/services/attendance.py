@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import AttendanceRecord, Employee, Shift
+from app.models import AttendanceRecord, Employee, Holiday, RestrictedHoliday, Shift
 from app.services.attendance_engine import AttendanceEngine, EngineFilters
 from app.utils import round2
 
@@ -270,6 +270,42 @@ def apply_recompute(db: Session, plan: dict) -> int:
         applied += 1
     db.commit()
     return applied
+
+
+def refresh_holiday_reports(db: Session, year: int) -> dict:
+    """Refresh attendance/report rows on a year's holiday dates only.
+
+    Holiday and restricted-holiday dates change the engine's status overlay,
+    but the stored daily records are not recalculated automatically.  Recompute
+    each holiday date (with the following morning available for night shifts)
+    and persist only rows whose values actually changed.
+    """
+    dates = {
+        row.holiday_date
+        for row in db.query(Holiday).filter(
+            Holiday.holiday_date >= date(year, 1, 1),
+            Holiday.holiday_date <= date(year, 12, 31),
+        ).all()
+    }
+    dates.update(
+        row.holiday_date
+        for row in db.query(RestrictedHoliday).filter(
+            RestrictedHoliday.year == year,
+            RestrictedHoliday.is_active != 0,
+        ).all()
+    )
+    result = {"year": year, "dates": len(dates), "changed": 0, "applied": 0}
+    for day in sorted(dates):
+        plan = plan_recompute(db, day, day + timedelta(days=1), max_changes=100000)
+        # The extra day only supplies morning punches for night shifts; rows on
+        # that day are left untouched.
+        plan["row_updates"] = {
+            key: value for key, value in plan["row_updates"].items()
+            if key[1] == day
+        }
+        result["changed"] += len(plan["row_updates"])
+        result["applied"] += apply_recompute(db, plan)
+    return result
 
 
 # Backwards-compatible helper used by older code/tests.
