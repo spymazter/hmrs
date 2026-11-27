@@ -57,7 +57,13 @@ export default function AccessControl() {
   const saveUser = async () => {
     try {
       const payload = { ...userModal }
-      if (payload.id) { delete payload.id; delete payload.password; await api.put(`/access/users/${userModal.id}`, payload) }
+      if (payload.id) {
+        delete payload.id
+        delete payload.role_ids
+        delete payload.group_ids
+        if (!payload.password) delete payload.password
+        await api.put(`/access/users/${userModal.id}`, payload)
+      }
       else await api.post('/access/users', payload)
       setUserModal(null); setNotice('User saved'); load()
     } catch (err) { setError(errorMessage(err)) }
