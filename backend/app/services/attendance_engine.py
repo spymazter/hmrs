@@ -38,6 +38,11 @@ CONFIG_KEY = "advanced_engine_config"
 OUT_TYPES = {"out", "checkout", "check_out", "break_out", "clock_out"}
 IN_TYPES = {"in", "checkin", "check_in", "break_in", "clock_in"}
 
+# A grouped employee's first punch is matched to the nearest group shift start.
+# Anything further away is treated as unreliable evidence and the deterministic
+# weekly rotation is kept, so a stray punch cannot silently reassign a shift.
+AUTO_SHIFT_MATCH_MINUTES = 120
+
 
 def _default_config() -> dict:
     return {
@@ -682,6 +687,47 @@ class AttendanceEngine:
         self.lunch_break = get_lunch_break_config(db)
 
     # -- shift resolution ---------------------------------------------------
+    def _auto_match_group_shift(
+        self, day: date, shifts: list[Shift], punches: list[NormalizedPunch]
+    ) -> Shift | None:
+        """Pick the group shift whose start slab matches the real punches.
+
+        Grouped employees (House Keeping, for example) may work any shift in
+        their group.  Without an explicit roster row, the first punch of the
+        day is stronger evidence than the calendar rotation.  A punch far from
+        every shift start is ignored so the caller keeps the rotation fallback.
+        """
+        if not shifts or not punches:
+            return None
+        best_shift: Shift | None = None
+        best_score: tuple[float, float, int] | None = None
+        for shift in shifts:
+            planned_start, planned_end = self.shift_window(day, shift)
+            scan_start, scan_end = self.punch_window(day, shift)
+            window_punches = [
+                punch for punch in punches
+                if scan_start <= punch.punch_time < scan_end
+            ]
+            # Require a punch on the shift's start date so a lone next-morning
+            # OUT cannot claim the previous night's shift.
+            anchors = [
+                punch for punch in window_punches
+                if punch.punch_time.date() == day
+            ]
+            if not anchors:
+                continue
+            first = min(anchors, key=lambda punch: punch.punch_time).punch_time
+            start_delta = abs((first - planned_start).total_seconds()) / 60
+            if start_delta > AUTO_SHIFT_MATCH_MINUTES:
+                continue
+            last = max(window_punches, key=lambda punch: punch.punch_time).punch_time
+            end_delta = abs((last - planned_end).total_seconds()) / 60
+            score = (round(start_delta, 2), round(end_delta, 2), shift.id or 0)
+            if best_score is None or score < best_score:
+                best_score = score
+                best_shift = shift
+        return best_shift
+
     def _resolve_shift(self, employee: Employee, day: date, data: AttendanceData) -> Shift | None:
         roster_shift_id = data.rosters.get((employee.id, day))
         if roster_shift_id:
@@ -689,12 +735,19 @@ class AttendanceEngine:
             if shift:
                 return shift
         # Grouped employees rotate weekly from a fixed anchor when no roster
-        # row exists.  A direct employee group wins over a designation group;
-        # legacy shift.rotation_group remains the final fallback.
+        # row exists and their punches do not clearly match a group shift.
+        # A direct employee group wins over a designation group; legacy
+        # shift.rotation_group remains the final fallback.
         shifts = []
         group_id = employee.shift_group_id or data.group_designations.get(employee.designation_id)
         if group_id:
             shifts = data.group_shifts.get(group_id) or []
+            if shifts:
+                matched = self._auto_match_group_shift(
+                    day, shifts, data.punches.get(employee.id, [])
+                )
+                if matched:
+                    return matched
         if not shifts:
             group = employee.shift.rotation_group if employee.shift else None
             shifts = data.rotation_shifts.get(group, []) if group else []
