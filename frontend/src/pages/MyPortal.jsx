@@ -121,7 +121,9 @@ export default function MyPortal() {
   const saveProfile = async () => {
     setSaving(true); setError(''); setNotice('')
     try {
-      const payload = { ...form, date_of_birth: form.date_of_birth || null }
+      const payload = { ...form }
+      if (profile?.date_of_birth) delete payload.date_of_birth
+      else payload.date_of_birth = form.date_of_birth || null
       const r = await api.put('/employees/me', payload)
       setProfile(r.data)
       setUser((u) => u ? {
@@ -349,7 +351,12 @@ export default function MyPortal() {
         <Notice type="info">Your username and employee code are fixed. Contact HR if they need correction.</Notice>
         <div className="form-grid">
           {personalFields.map(([key, label]) => (
-            <Field key={key} label={label} full={key === 'address'}>
+            <Field
+              key={key}
+              label={label}
+              full={key === 'address'}
+              hint={key === 'date_of_birth' && profile?.date_of_birth ? 'Locked — contact HR or admin to change' : undefined}
+            >
               {key === 'gender' || key === 'blood_group' ? (
                 <SearchableSelect
                   value={form[key] ?? ''}
@@ -361,6 +368,7 @@ export default function MyPortal() {
               ) : (
                 <input
                   type={key === 'date_of_birth' ? 'date' : key === 'email' ? 'email' : 'text'}
+                  disabled={key === 'date_of_birth' && Boolean(profile?.date_of_birth)}
                   value={form[key] ?? ''}
                   onChange={(e) => setForm({ ...form, [key]: e.target.value })}
                 />

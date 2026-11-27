@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Birthdays from './pages/Birthdays'
 import Employees from './pages/Employees'
 import EmployeeDocuments from './pages/EmployeeDocuments'
 import Circulars from './pages/Circulars'
@@ -39,6 +40,7 @@ export default function App() {
         <Route element={<Protected />}>
           <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/birthdays" element={<Guard perm={['employee.view']}><Birthdays /></Guard>} />
             <Route path="/employees" element={<Guard perm={['employee.view']}><Employees /></Guard>} />
             <Route path="/documents" element={<Guard perm={['document.view', 'self.portal']}><EmployeeDocuments /></Guard>} />
             <Route path="/circulars" element={<Guard perm={['circular.manage']}><Circulars /></Guard>} />

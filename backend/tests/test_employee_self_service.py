@@ -90,6 +90,48 @@ def test_employee_can_update_dob_and_nominee_details():
         db.close()
 
 
+def test_employee_cannot_change_dob_after_it_is_set():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        role = _role(db, "Employee", ["self.portal", "document.view"])
+        employee = _employee(db, "SELF-DOB", "9004", "Locked")
+        employee.date_of_birth = date(1990, 1, 2)
+        user = _user(db, "self-dob-user", role, employee)
+
+        updated = employees_router.update_my_profile(
+            EmployeeSelfUpdate(date_of_birth=date(2000, 5, 6), phone="9999999999"),
+            db,
+            user,
+        )
+
+        assert updated.date_of_birth == date(1990, 1, 2)
+        assert updated.phone == "9999999999"
+        assert db.get(Employee, employee.id).date_of_birth == date(1990, 1, 2)
+    finally:
+        db.close()
+
+
+def test_hr_can_change_employee_dob_through_self_endpoint():
+    _, Session = sample_db()
+    db = Session()
+    try:
+        role = _role(db, "HR Manager", ["self.portal", "employee.view", "employee.edit"])
+        employee = _employee(db, "SELF-HRDOB", "9005", "HrEdit")
+        employee.date_of_birth = date(1990, 1, 2)
+        user = _user(db, "self-hr-dob-user", role, employee)
+
+        updated = employees_router.update_my_profile(
+            EmployeeSelfUpdate(date_of_birth=date(1988, 3, 4)),
+            db,
+            user,
+        )
+
+        assert updated.date_of_birth == date(1988, 3, 4)
+    finally:
+        db.close()
+
+
 def test_employee_uploads_own_kyc_and_hr_can_view(monkeypatch, tmp_path):
     monkeypatch.setattr(documents.settings, "DOCUMENT_DIR", str(tmp_path))
     _, Session = sample_db()

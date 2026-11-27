@@ -1,12 +1,13 @@
+import calendar
 import csv
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from app.auth import can, get_current_user, hash_password, require
+from app.auth import can, get_current_user, hash_password, is_admin, require
 from app.database import get_db
 from app.models import Employee, Role, User
 from app.schemas import (
@@ -129,7 +130,8 @@ def update_my_profile(
     """Update only personal details for the logged-in employee.
 
     Username, employee code, status, device UID, department, designation,
-    shift and manager are intentionally not accepted here.
+    shift and manager are intentionally not accepted here. Date of birth can
+    be entered once, then only HR/admin (employee.edit) may change it.
     """
     if not user.employee_id:
         raise HTTPException(404, "No employee profile is linked to this account")
@@ -138,6 +140,12 @@ def update_my_profile(
         raise HTTPException(404, "Employee profile not found")
 
     data = payload.model_dump(exclude_unset=True)
+    if "date_of_birth" in data:
+        privileged = is_admin(user) or can(user, "employee.edit")
+        if employee.date_of_birth is not None and not privileged:
+            data.pop("date_of_birth")
+        elif data["date_of_birth"] in (None, ""):
+            data.pop("date_of_birth")
     for key, value in data.items():
         setattr(employee, key, value.strip() if isinstance(value, str) else value)
 
@@ -178,6 +186,69 @@ def export_employees(
     employees = _filtered_employees(db, search, department_id, status).order_by(Employee.employee_code).all()
     rows = [_employee_export_row(employee) for employee in employees]
     return _employee_export_response(rows, file_format)
+
+
+def _birthday_in_year(dob: date, year: int) -> date:
+    """Next birthday occurrence, handling 29 February in non-leap years."""
+    if dob.month == 2 and dob.day == 29 and not calendar.isleap(year):
+        return date(year, 2, 28)
+    return date(year, dob.month, dob.day)
+
+
+@router.get("/birthdays")
+def birthday_portal(
+    db: Session = Depends(get_db),
+    _=Depends(require("employee.view")),
+):
+    """Upcoming birthdays for the current week and month, from employee DOBs."""
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+    month_start = today.replace(day=1)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    month_end = next_month - timedelta(days=1)
+
+    employees = (
+        db.query(Employee)
+        .filter(Employee.status == "active", Employee.date_of_birth.isnot(None))
+        .order_by(Employee.employee_code)
+        .all()
+    )
+
+    def item(employee: Employee, when: date) -> dict:
+        return {
+            "employee_id": employee.id,
+            "employee_code": employee.employee_code,
+            "name": employee.full_name,
+            "date_of_birth": employee.date_of_birth.isoformat(),
+            "birthday": when.isoformat(),
+            "days_away": (when - today).days,
+            "department": employee.department_name or "",
+            "designation": employee.designation_name or "",
+        }
+
+    today_items: list[dict] = []
+    week_items: list[dict] = []
+    month_items: list[dict] = []
+    for employee in employees:
+        for occurrence in (
+            _birthday_in_year(employee.date_of_birth, today.year),
+            _birthday_in_year(employee.date_of_birth, today.year + 1),
+        ):
+            if occurrence == today:
+                today_items.append(item(employee, occurrence))
+            if week_start <= occurrence <= week_end and occurrence >= today:
+                week_items.append(item(employee, occurrence))
+            if month_start <= occurrence <= month_end and occurrence >= today:
+                month_items.append(item(employee, occurrence))
+
+    order = lambda rows: sorted(rows, key=lambda row: (row["birthday"], row["name"].casefold()))
+    return {
+        "date": today.isoformat(),
+        "week": {"start": week_start.isoformat(), "end": week_end.isoformat(), "items": order(week_items)},
+        "month": {"start": month_start.isoformat(), "end": month_end.isoformat(), "items": order(month_items)},
+        "today": order(today_items),
+    }
 
 
 @router.post("", response_model=EmployeeOut, status_code=201)

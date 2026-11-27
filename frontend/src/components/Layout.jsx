@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  BarChart3, BriefcaseBusiness, Building2, CalendarCheck2, CalendarRange, ChevronDown, ClipboardList,
+  BarChart3, BriefcaseBusiness, Building2, CakeSlice, CalendarCheck2, CalendarRange, ChevronDown, ClipboardList,
   Coffee, FileBarChart, FileText, Fingerprint, LayoutDashboard, LogOut, MapPin, Megaphone, Menu, ShieldCheck, UserCircle2, Users, Wallet, X, KeyRound,
 } from 'lucide-react'
 import api, { errorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Modal, Field, Notice } from './ui'
+import BirthdayCelebration from './BirthdayCelebration'
 
 const NAV = [
   { section: 'Overview', items: [
     { to: '/', label: 'Dashboard', icon: LayoutDashboard, perm: ['dashboard.view', 'self.portal'] },
+    { to: '/birthdays', label: 'Happy Birthday', icon: CakeSlice, perm: ['employee.view'] },
   ] },
   { section: 'People & shifts', items: [
     { to: '/employees', label: 'Employees', icon: Users, perm: ['employee.view'] },
@@ -42,6 +44,7 @@ const NAV = [
 
 const TITLES = {
   '/': ['Dashboard', 'Today at a glance'],
+  '/birthdays': ['Happy Birthday', 'Upcoming birthdays this week and this month'],
   '/employees': ['Employees', 'Manage employee master and device enrollment'],
   '/documents': ['Employee documents', 'Employee-wise document status and uploaded files'],
   '/circulars': ['Circular notices', 'Upload HR notices to the employee dashboard notice board'],
@@ -234,7 +237,9 @@ export default function Layout() {
           <Field label="Gender"><input value={onboarding.gender} onChange={(e) => setOnboarding({ ...onboarding, gender: e.target.value })} /></Field>
           <Field label="First name"><input value={onboarding.first_name} onChange={(e) => setOnboarding({ ...onboarding, first_name: e.target.value })} /></Field>
           <Field label="Last name"><input value={onboarding.last_name} onChange={(e) => setOnboarding({ ...onboarding, last_name: e.target.value })} /></Field>
-          <Field label="Date of birth"><input type="date" value={onboarding.date_of_birth} onChange={(e) => setOnboarding({ ...onboarding, date_of_birth: e.target.value })} /></Field>
+          <Field label="Date of birth" hint={onboarding.date_of_birth ? 'Locked — contact HR or admin to change' : undefined}>
+            <input type="date" disabled={Boolean(onboarding.date_of_birth)} value={onboarding.date_of_birth} onChange={(e) => setOnboarding({ ...onboarding, date_of_birth: e.target.value })} />
+          </Field>
           <Field label="Email"><input type="email" value={onboarding.email} onChange={(e) => setOnboarding({ ...onboarding, email: e.target.value })} /></Field>
           <Field label="Phone"><input value={onboarding.phone} onChange={(e) => setOnboarding({ ...onboarding, phone: e.target.value })} /></Field>
           <Field label="Alternate phone"><input value={onboarding.alternate_phone} onChange={(e) => setOnboarding({ ...onboarding, alternate_phone: e.target.value })} /></Field>
@@ -246,6 +251,8 @@ export default function Layout() {
           <Field label="New password" hint="Minimum 6 characters"><input type="password" value={onboarding.new_password} onChange={(e) => setOnboarding({ ...onboarding, new_password: e.target.value })} /></Field>
         </div>
       </Modal>
+
+      {!needsOnboarding && <BirthdayCelebration />}
     </div>
   )
 }
